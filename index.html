@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#0a1628" />
+    <title>Connect Four</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="css/app.css" />
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  </head>
+  <body>
+    <div class="app" id="app">
+      <header class="app-header">
+        <div class="app-header__brand">
+          <span class="app-title">Connect Four</span>
+        </div>
+      </header>
+
+      <main class="app-main">
+        <!-- Lobby -->
+        <section
+          class="view view--active view--lobby"
+          id="view-lobby"
+          data-view="lobby"
+          aria-labelledby="lobby-heading"
+        >
+          <header class="lobby-intro">
+            <p class="lobby-intro__pulse">Гравців онлайн: 1</p>
+            <h1 class="lobby-intro__title view__title" id="lobby-heading">Лобі</h1>
+            <p class="lobby-intro__tagline">Чотири в ряд — створи стіл або долучись до матчу.</p>
+          </header>
+
+          <article class="game-hub-card">
+            <div class="game-hub-card__rack" aria-hidden="true">
+              <div class="modal__rack-inner">
+                <span class="modal__rack-disk modal__rack-disk--red"></span>
+                <span class="modal__rack-disk modal__rack-disk--accent"></span>
+                <span class="modal__rack-disk modal__rack-disk--hole"></span>
+                <span class="modal__rack-disk modal__rack-disk--red"></span>
+                <span class="modal__rack-disk modal__rack-disk--accent"></span>
+              </div>
+            </div>
+            <div class="game-hub-card__panel">
+              <p class="game-hub-card__eyebrow">Швидкий матч</p>
+              <h2 class="game-hub-card__heading">Створи свою партію</h2>
+              <button type="button" class="btn btn--play game-hub-card__cta" id="btnOpenCreateLobby">
+                Створити лобі
+              </button>
+            </div>
+          </article>
+
+          <h3 class="section-label section-label--lobby">Активні кімнати</h3>
+          <ul class="card-list" id="lobbyList">
+            <!-- filled by JS -->
+          </ul>
+        </section>
+
+        <!-- Profile -->
+        <section
+          class="view"
+          id="view-profile"
+          data-view="profile"
+          aria-labelledby="profile-heading"
+          hidden
+        >
+          <h1 class="view__title" id="profile-heading">Профіль</h1>
+
+          <article class="profile-hero">
+            <div class="profile-hero__toolbar">
+              <button type="button" class="profile-settings-btn" aria-label="Налаштування">
+                <svg
+                  class="profile-settings-btn__icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div class="profile-hero__avatar-wrap">
+              <div
+                class="profile-hero__avatar"
+                id="profileAvatar"
+                role="img"
+                aria-label="Аватар гравця"
+              >
+                ?
+              </div>
+            </div>
+            <div class="profile-hero__info">
+              <h2 class="profile-hero__name" id="profileName">Гравець</h2>
+              <p class="profile-hero__id" id="profileId">id: —</p>
+            </div>
+            <div class="stat-grid">
+              <div class="stat-pill">
+                <span class="stat-pill__value" id="statWinrate">—</span>
+                <span class="stat-pill__label">Winrate</span>
+              </div>
+              <div class="stat-pill">
+                <span class="stat-pill__value" id="statGames">—</span>
+                <span class="stat-pill__label">Ігор</span>
+              </div>
+              <div class="stat-pill">
+                <span class="stat-pill__value" id="statRating">—</span>
+                <span class="stat-pill__label">Рейтинг</span>
+              </div>
+            </div>
+          </article>
+
+          <h3 class="section-label">Історія ігор</h3>
+          <ul class="history-list" id="historyList">
+            <!-- filled by JS -->
+          </ul>
+        </section>
+
+        <!-- Leaderboard -->
+        <section
+          class="view"
+          id="view-leaderboard"
+          data-view="leaderboard"
+          aria-labelledby="lb-heading"
+          hidden
+        >
+          <h1 class="view__title" id="lb-heading">Таблиця лідерів</h1>
+
+          <div class="lb-tabs" role="tablist" aria-label="Період">
+            <button type="button" class="lb-tab is-active" data-period="week" role="tab" aria-selected="true">
+              Тиждень
+            </button>
+            <button type="button" class="lb-tab" data-period="all" role="tab" aria-selected="false">
+              Усі часи
+            </button>
+          </div>
+
+          <ol class="lb-list" id="leaderboardList">
+            <!-- filled by JS -->
+          </ol>
+        </section>
+
+        <!-- Екран гри -->
+        <section
+          class="view view--game"
+          id="view-game"
+          data-view="game"
+          aria-labelledby="game-heading"
+          hidden
+        >
+          <div class="game-screen">
+            <header class="game-screen__top">
+              <button type="button" class="game-screen__back" id="btnGameBack">
+                ← Лобі
+              </button>
+              <div class="game-screen__brand">
+                <p class="game-screen__eyebrow">Твоя партія</p>
+                <h1 class="game-screen__title" id="game-heading">Чотири в ряд</h1>
+              </div>
+              <div class="game-screen__chip">
+                <span class="game-screen__chip-label">Формат</span>
+                <span class="game-screen__chip-value" id="gameMatchMeta">—</span>
+              </div>
+            </header>
+
+            <div class="game-clocks" aria-live="polite">
+              <div class="game-clock game-clock--player game-clock--chip-yellow is-active" id="gameClockYellowPanel">
+                <span class="game-clock__label">Ти</span>
+                <span class="game-clock__wrap">
+                  <span class="game-clock__time" id="gameClockYellowValue">1:00</span>
+                  <span class="game-clock__bonus" id="gameClockYellowBonus" aria-hidden="true"></span>
+                </span>
+              </div>
+              <div class="game-clock game-clock--opponent game-clock--chip-red" id="gameClockRedPanel">
+                <span class="game-clock__label">Суперник</span>
+                <span class="game-clock__wrap">
+                  <span class="game-clock__time" id="gameClockRedValue">1:00</span>
+                  <span class="game-clock__bonus" id="gameClockRedBonus" aria-hidden="true"></span>
+                </span>
+              </div>
+            </div>
+
+            <div class="game-board-shell">
+              <div class="game-board__legend" aria-hidden="true">
+                <span class="game-board__legend-disk game-board__legend-disk--yellow" id="gameLegendHumanDisk"></span>
+                <span>ти</span>
+                <span class="game-board__legend-sep">·</span>
+                <span
+                  class="game-board__legend-disk game-board__legend-disk--chip-red"
+                  id="gameLegendOppDisk"
+                ></span>
+                <span>суперник</span>
+              </div>
+              <div class="game-board" id="gameBoard" role="group" aria-label="Ігрове поле, 7 колонок"></div>
+            </div>
+
+            <footer class="game-screen__footer">
+              <div class="game-turn game-turn--disk-yellow" id="gameTurnBanner">
+                <span class="game-turn__disk" aria-hidden="true"></span>
+                <p class="game-turn__text" id="gameTurnLabel">Твій хід — жовті фішки</p>
+              </div>
+              <button
+                type="button"
+                class="btn btn--muted game-footer-return"
+                id="btnGameReturnLobby"
+                hidden
+              >
+                Повернутися в лобі
+              </button>
+              <p class="game-screen__hint">Обери колонку — фішка впаде вниз, як у класичному Connect Four.</p>
+            </footer>
+          </div>
+        </section>
+      </main>
+
+      <nav class="tab-bar" aria-label="Основні вкладки">
+        <div class="tab-bar__inner">
+          <div class="tab-bar__segment is-active">
+            <button
+              type="button"
+              class="tab-bar__btn"
+              data-tab="lobby"
+              aria-current="page"
+            >
+            <svg class="tab-bar__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M4 10.5L12 4L20 10.5V19C20 19.5523 19.5523 20 19 20H14V15H10V20H5C4.44772 20 4 19.5523 4 19V10.5Z"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span class="tab-bar__label">Лобі</span>
+            </button>
+          </div>
+          <span class="tab-bar__divider" aria-hidden="true"></span>
+          <div class="tab-bar__segment">
+            <button type="button" class="tab-bar__btn" data-tab="profile">
+            <svg class="tab-bar__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M12 12C14.7614 12 17 9.76142 17 7C17 4.23858 14.7614 2 12 2C9.23858 2 7 4.23858 7 7C7 9.76142 9.23858 12 12 12Z"
+                stroke="currentColor"
+                stroke-width="2"
+              />
+              <path
+                d="M20 21C20 16.5817 16.4183 13 12 13C7.58172 13 4 16.5817 4 21"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+            <span class="tab-bar__label">Профіль</span>
+            </button>
+          </div>
+          <span class="tab-bar__divider" aria-hidden="true"></span>
+          <div class="tab-bar__segment">
+            <button type="button" class="tab-bar__btn" data-tab="leaderboard">
+            <svg class="tab-bar__icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M8 21V14M12 21V10M16 21V16M20 21V12M4 21H20"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+              <path d="M7 10L10 7L14 11L18 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span class="tab-bar__label">Рейтинг</span>
+            </button>
+          </div>
+        </div>
+      </nav>
+
+    </div>
+
+    <!-- Модальне вікно: параметри нового лобі -->
+    <div class="modal" id="createLobbyModal" hidden>
+      <div class="modal__backdrop" data-modal-close tabindex="-1" aria-hidden="true"></div>
+      <div
+        class="modal__sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="createLobbyTitle"
+      >
+        <header class="modal__header modal__header--game">
+          <div class="modal__header-text">
+            <p class="modal__eyebrow">Нова партія</p>
+            <h2 class="modal__title" id="createLobbyTitle">Параметри лобі</h2>
+          </div>
+          <button type="button" class="modal__close-btn modal__close-btn--game" data-modal-close aria-label="Закрити">
+            <svg class="modal__close-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M18 6L6 18M6 6l12 12"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </header>
+        <div class="modal__rack" aria-hidden="true">
+          <div class="modal__rack-inner">
+            <span class="modal__rack-disk modal__rack-disk--red"></span>
+            <span class="modal__rack-disk modal__rack-disk--accent"></span>
+            <span class="modal__rack-disk modal__rack-disk--hole"></span>
+            <span class="modal__rack-disk modal__rack-disk--red"></span>
+            <span class="modal__rack-disk modal__rack-disk--accent"></span>
+          </div>
+        </div>
+        <div class="modal__body modal__body--game">
+          <div class="modal-row">
+            <div class="modal-row__text">
+              <span class="modal-row__title">Доступ до лобі</span>
+              <span class="modal-row__subtitle">Хто бачить стіл у списку активних кімнат</span>
+            </div>
+            <div class="modal-row__control">
+              <div
+                class="segmented segmented--compact segmented--thumb"
+                role="group"
+                aria-label="Доступ до лобі"
+                data-active="open"
+              >
+                <span class="segmented__thumb" aria-hidden="true"></span>
+                <button
+                  type="button"
+                  class="segmented__btn is-active"
+                  id="lobbyVisibilityOpen"
+                  aria-pressed="true"
+                  data-segment="visibility"
+                  data-value="open"
+                >
+                  Відкрите
+                </button>
+                <button
+                  type="button"
+                  class="segmented__btn"
+                  id="lobbyVisibilityClosed"
+                  aria-pressed="false"
+                  data-segment="visibility"
+                  data-value="closed"
+                >
+                  Закрите
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-row">
+            <div class="modal-row__text">
+              <span class="modal-row__title">Запросити друга</span>
+              <span class="modal-row__subtitle">Поділись посиланням у Telegram</span>
+            </div>
+            <div class="modal-row__control">
+              <button type="button" class="btn btn--invite modal-invite-btn" id="btnLobbyInvite">
+                Запросити
+              </button>
+            </div>
+          </div>
+
+          <div class="modal-row">
+            <div class="modal-row__text">
+              <span class="modal-row__title">Колір твоїх фішок</span>
+              <span class="modal-row__subtitle">На полі та годиннику</span>
+            </div>
+            <div class="modal-row__control">
+              <div
+                class="segmented segmented--compact segmented--thumb"
+                role="group"
+                aria-label="Колір твоїх фішок"
+                data-active="yellow"
+              >
+                <span class="segmented__thumb" aria-hidden="true"></span>
+                <button
+                  type="button"
+                  class="segmented__btn is-active"
+                  id="lobbyPlayerChipYellow"
+                  aria-pressed="true"
+                  data-segment="player-chip"
+                  data-value="yellow"
+                >
+                  Жовтий
+                </button>
+                <button
+                  type="button"
+                  class="segmented__btn"
+                  id="lobbyPlayerChipRed"
+                  aria-pressed="false"
+                  data-segment="player-chip"
+                  data-value="red"
+                >
+                  Червоний
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-row modal-row--interactive">
+            <div class="modal-row__text">
+              <span class="modal-row__title">Час на гравця</span>
+              <span class="modal-row__subtitle">Початковий запас перед грою</span>
+            </div>
+            <div class="modal-row__control">
+              <div class="fake-select" data-fake-select>
+                <input type="hidden" id="lobbyTimeSeconds" value="60" />
+                <button
+                  type="button"
+                  class="fake-select__trigger"
+                  aria-expanded="false"
+                  aria-haspopup="listbox"
+                >
+                  <span class="fake-select__value">1 хв</span>
+                  <svg class="fake-select__caret" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M6 9l6 6 6-6"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
+                <ul class="fake-select__list" role="listbox" hidden>
+                  <li role="option" tabindex="-1" data-value="15">15 сек</li>
+                  <li role="option" tabindex="-1" data-value="30">30 сек</li>
+                  <li role="option" tabindex="-1" data-value="60" class="is-selected" aria-selected="true">
+                    1 хв
+                  </li>
+                  <li role="option" tabindex="-1" data-value="120">2 хв</li>
+                  <li role="option" tabindex="-1" data-value="180">3 хв</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-row modal-row--interactive">
+            <div class="modal-row__text">
+              <span class="modal-row__title">Додати після ходу</span>
+              <span class="modal-row__subtitle">Секунди на годинник того, хто зіграв хід</span>
+            </div>
+            <div class="modal-row__control">
+              <div class="fake-select" data-fake-select>
+                <input type="hidden" id="lobbyIncrementSeconds" value="1" />
+                <button
+                  type="button"
+                  class="fake-select__trigger"
+                  aria-expanded="false"
+                  aria-haspopup="listbox"
+                >
+                  <span class="fake-select__value">+1 с</span>
+                  <svg class="fake-select__caret" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M6 9l6 6 6-6"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
+                <ul class="fake-select__list" role="listbox" hidden>
+                  <li role="option" tabindex="-1" data-value="0">0 с</li>
+                  <li role="option" tabindex="-1" data-value="1" class="is-selected" aria-selected="true">
+                    +1 с
+                  </li>
+                  <li role="option" tabindex="-1" data-value="2">+2 с</li>
+                  <li role="option" tabindex="-1" data-value="3">+3 с</li>
+                  <li role="option" tabindex="-1" data-value="5">+5 с</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+        <footer class="modal__footer modal__footer--game">
+          <button type="button" class="btn btn--muted btn--modal-foot" data-modal-close>Скасувати</button>
+          <button type="button" class="btn btn--play btn--modal-foot" id="btnCreateLobbyConfirm">Створити лобі</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Підтвердження виходу в лобі під час активної партії -->
+    <div class="modal" id="leaveGameModal" hidden>
+      <div class="modal__backdrop" data-leave-close tabindex="-1" aria-hidden="true"></div>
+      <div
+        class="modal__sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="leaveGameTitle"
+        aria-describedby="leaveGameDesc"
+      >
+        <header class="modal__header modal__header--game">
+          <div class="modal__header-text">
+            <p class="modal__eyebrow">Активна партія</p>
+            <h2 class="modal__title" id="leaveGameTitle">Вийти в лобі?</h2>
+          </div>
+          <button type="button" class="modal__close-btn modal__close-btn--game" data-leave-close aria-label="Закрити">
+            <svg class="modal__close-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M18 6L6 18M6 6l12 12"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </header>
+        <div class="modal__body modal__body--game">
+          <p class="leave-game-modal__desc" id="leaveGameDesc">
+            Точно хочеш вийти? Це дорівнює добровільній здачі: ти автоматично програєш, противник
+            переможе, партія закриється, і ти втратиш рейтингові бали.
+          </p>
+        </div>
+        <footer class="modal__footer modal__footer--game">
+          <button type="button" class="btn btn--muted btn--modal-foot" data-leave-close>Залишитись у грі</button>
+          <button type="button" class="btn btn--modal-risk btn--modal-foot" id="btnLeaveGameConfirm">
+            Вийти (поразка)
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>
