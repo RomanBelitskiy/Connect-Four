@@ -14,7 +14,7 @@
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="css/app.css" />
+    <link rel="stylesheet" href="/css/app.css" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
@@ -34,7 +34,7 @@
           aria-labelledby="lobby-heading"
         >
           <header class="lobby-intro">
-            <p class="lobby-intro__pulse">Гравців онлайн: 1</p>
+            <p class="lobby-intro__pulse">Гравців онлайн: <span id="lobbyOnlineCount">—</span></p>
             <h1 class="lobby-intro__title view__title" id="lobby-heading">Лобі</h1>
             <p class="lobby-intro__tagline">Чотири в ряд — створи стіл або долучись до матчу.</p>
           </header>
@@ -112,6 +112,7 @@
             </div>
             <div class="profile-hero__info">
               <h2 class="profile-hero__name" id="profileName">Гравець</h2>
+              <p class="profile-hero__username" id="profileUsername" hidden></p>
               <p class="profile-hero__id" id="profileId">id: —</p>
             </div>
             <div class="stat-grid">
@@ -170,9 +171,6 @@
         >
           <div class="game-screen">
             <header class="game-screen__top">
-              <button type="button" class="game-screen__back" id="btnGameBack">
-                ← Лобі
-              </button>
               <div class="game-screen__brand">
                 <p class="game-screen__eyebrow">Твоя партія</p>
                 <h1 class="game-screen__title" id="game-heading">Чотири в ряд</h1>
@@ -212,6 +210,11 @@
                 <span>суперник</span>
               </div>
               <div class="game-board" id="gameBoard" role="group" aria-label="Ігрове поле, 7 колонок"></div>
+              <div class="game-waiting" id="gameWaiting" hidden>
+                <p class="game-waiting__title">Очікуємо суперника</p>
+                <p class="game-waiting__hint">Надішли посилання другу в Telegram</p>
+                <button type="button" class="btn btn--invite" id="btnShareLobby">Запросити друга</button>
+              </div>
             </div>
 
             <footer class="game-screen__footer">
@@ -366,18 +369,6 @@
 
           <div class="modal-row">
             <div class="modal-row__text">
-              <span class="modal-row__title">Запросити друга</span>
-              <span class="modal-row__subtitle">Поділись посиланням у Telegram</span>
-            </div>
-            <div class="modal-row__control">
-              <button type="button" class="btn btn--invite modal-invite-btn" id="btnLobbyInvite">
-                Запросити
-              </button>
-            </div>
-          </div>
-
-          <div class="modal-row">
-            <div class="modal-row__text">
               <span class="modal-row__title">Колір твоїх фішок</span>
               <span class="modal-row__subtitle">На полі та годиннику</span>
             </div>
@@ -496,7 +487,47 @@
       </div>
     </div>
 
-    <!-- Підтвердження виходу в лобі під час активної партії -->
+    <!-- Підтвердження заміни активного лобі -->
+    <div class="modal" id="replaceLobbyModal" hidden>
+      <div class="modal__backdrop" data-replace-close tabindex="-1" aria-hidden="true"></div>
+      <div
+        class="modal__sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="replaceLobbyTitle"
+        aria-describedby="replaceLobbyDesc"
+      >
+        <header class="modal__header modal__header--game">
+          <div class="modal__header-text">
+            <p class="modal__eyebrow">Лобі</p>
+            <h2 class="modal__title" id="replaceLobbyTitle">Активне лобі</h2>
+          </div>
+          <button type="button" class="modal__close-btn modal__close-btn--game" data-replace-close aria-label="Закрити">
+            <svg class="modal__close-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M18 6L6 18M6 6l12 12"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </header>
+        <div class="modal__body modal__body--game">
+          <p class="leave-game-modal__desc" id="replaceLobbyDesc">
+            У тебе вже є лобі. Закрити його і приєднатись до цієї кімнати?
+          </p>
+        </div>
+        <footer class="modal__footer modal__footer--game">
+          <button type="button" class="btn btn--muted btn--modal-foot" data-replace-close>Скасувати</button>
+          <button type="button" class="btn btn--play btn--modal-foot" id="btnReplaceLobbyConfirm">
+            Закрити і приєднатись
+          </button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Підтвердження виходу з лобі / партії -->
     <div class="modal" id="leaveGameModal" hidden>
       <div class="modal__backdrop" data-leave-close tabindex="-1" aria-hidden="true"></div>
       <div
@@ -508,8 +539,8 @@
       >
         <header class="modal__header modal__header--game">
           <div class="modal__header-text">
-            <p class="modal__eyebrow">Активна партія</p>
-            <h2 class="modal__title" id="leaveGameTitle">Вийти в лобі?</h2>
+            <p class="modal__eyebrow" id="leaveGameEyebrow">Лобі</p>
+            <h2 class="modal__title" id="leaveGameTitle">Вийти з лобі?</h2>
           </div>
           <button type="button" class="modal__close-btn modal__close-btn--game" data-leave-close aria-label="Закрити">
             <svg class="modal__close-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -524,19 +555,16 @@
         </header>
         <div class="modal__body modal__body--game">
           <p class="leave-game-modal__desc" id="leaveGameDesc">
-            Точно хочеш вийти? Це дорівнює добровільній здачі: ти автоматично програєш, противник
-            переможе, партія закриється, і ти втратиш рейтингові бали.
+            Лобі закриється, і ти повернешся до списку кімнат.
           </p>
         </div>
         <footer class="modal__footer modal__footer--game">
-          <button type="button" class="btn btn--muted btn--modal-foot" data-leave-close>Залишитись у грі</button>
-          <button type="button" class="btn btn--modal-risk btn--modal-foot" id="btnLeaveGameConfirm">
-            Вийти (поразка)
-          </button>
+          <button type="button" class="btn btn--muted btn--modal-foot" id="btnLeaveGameStay">Залишитись</button>
+          <button type="button" class="btn btn--modal-risk btn--modal-foot" id="btnLeaveGameConfirm">Вийти</button>
         </footer>
       </div>
     </div>
 
-    <script type="module" src="js/main.js"></script>
+    <script type="module" src="/js/main.js"></script>
   </body>
 </html>

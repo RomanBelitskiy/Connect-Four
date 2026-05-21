@@ -1,4 +1,34 @@
-import { openGameFromNewLobby } from "../game/match-board.js";
+import { startLobbyFromSettings, leaveActiveLobby } from "../game/lobby-session.js";
+import { refreshLobbies } from "../app/shell.js";
+import { fetchActiveLobby } from "../api/client.js";
+import { confirmReplaceLobby } from "./replace-lobby-modal.js";
+import { userErrorMessage } from "../utils/errors.js";
+
+async function createLobbyFlow(settings) {
+  var existing = await fetchActiveLobby();
+  if (existing) {
+    var ok = await confirmReplaceLobby({ mode: "create" });
+    if (!ok) return;
+    await leaveActiveLobby(existing.id);
+    await startLobbyFromSettings(settings, true);
+    await refreshLobbies();
+    return;
+  }
+
+  try {
+    await startLobbyFromSettings(settings, false);
+  } catch (err) {
+    if (err && (err.code === "active_lobby_exists" || err.message === "active_lobby_exists")) {
+      var retryOk = await confirmReplaceLobby({ mode: "create" });
+      if (!retryOk) return;
+      await leaveActiveLobby();
+      await startLobbyFromSettings(settings, true);
+    } else {
+      throw err;
+    }
+  }
+  await refreshLobbies();
+}
 
 function getCreateLobbyModal() {
   return document.getElementById("createLobbyModal");
@@ -146,27 +176,14 @@ export function bindCreateLobbyModal() {
     });
   });
 
-  var inviteBtn = document.getElementById("btnLobbyInvite");
-  if (inviteBtn) {
-    inviteBtn.addEventListener("click", function () {
-      var tg = window.Telegram && window.Telegram.WebApp;
-      var url = window.location.href.split("#")[0];
-      if (tg && typeof tg.shareUrl === "function") {
-        tg.shareUrl(url);
-        return;
-      }
-      if (navigator.share) {
-        navigator.share({ url: url }).catch(function () {});
-      }
-    });
-  }
-
   var confirmBtn = document.getElementById("btnCreateLobbyConfirm");
   if (confirmBtn) {
     confirmBtn.addEventListener("click", function () {
       var settings = getLobbyModalSettings();
       closeCreateLobbyModal();
-      openGameFromNewLobby(settings);
+      createLobbyFlow(settings).catch(function (err) {
+        window.alert(userErrorMessage(err) || "Не вдалося створити лобі");
+      });
     });
   }
 

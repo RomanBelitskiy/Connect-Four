@@ -1,4 +1,5 @@
 import { maybeForfeitActiveMatch } from "../game/match-board.js";
+import { setTelegramBackVisible } from "./telegram.js";
 
 export function switchTab(tab) {
   var gameEl = document.getElementById("view-game");
@@ -29,4 +30,6 @@ export function switchTab(tab) {
     if (is) btn.setAttribute("aria-current", "page");
     else btn.removeAttribute("aria-current");
   });
+
+  setTelegramBackVisible(tab === "game");
 }

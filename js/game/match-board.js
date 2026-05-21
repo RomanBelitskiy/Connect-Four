@@ -1,5 +1,7 @@
 import { game, GAME_COLS, GAME_ROWS } from "./state.js";
 import { formatClock, formatLobbyMeta, prefersReducedMotion } from "../utils/format.js";
+import { submitMove, syncLobby } from "../api/client.js";
+import { notifyLobbyState } from "../api/ws.js";
 
 let navigateToTab = function (tab) {
   console.warn("[ConnectFour] navigate not wired:", tab);
@@ -86,7 +88,7 @@ function updateGhostPreviewColumn(board, colBtn) {
     colBtn.disabled ||
     game.matchFinished ||
     !game.matchActive ||
-    game.currentPlayer !== "y" ||
+    !isHumanTurn() ||
     board.getAttribute("data-drop-active") === "1"
   ) {
     return;
@@ -225,6 +227,19 @@ function updateClockDisplay() {
   }
 }
 
+function isHumanTurn() {
+  return game.currentPlayer === "y";
+}
+
+function requestServerClockSync() {
+  if (!game.lobbyId || game.matchFinished) return;
+  syncLobby(game.lobbyId)
+    .then(function (lobby) {
+      if (lobby) notifyLobbyState(lobby);
+    })
+    .catch(function () {});
+}
+
 function endGameTimeLoss(loser) {
   if (!game.matchActive || game.matchFinished) return;
   stopGameClock();
@@ -263,13 +278,13 @@ function tickGameClock() {
   if (game.currentPlayer === "y") {
     game.clockYellowSec = Math.max(0, game.clockYellowSec - 1);
     if (game.clockYellowSec <= 0) {
-      endGameTimeLoss("y");
+      requestServerClockSync();
       return;
     }
   } else {
     game.clockRedSec = Math.max(0, game.clockRedSec - 1);
     if (game.clockRedSec <= 0) {
-      endGameTimeLoss("r");
+      requestServerClockSync();
       return;
     }
   }
@@ -397,25 +412,23 @@ function showForfeitBanner() {
   wrap.setAttribute("data-dismiss-timer-id", String(timerId));
 }
 
+export function isForfeitLeave() {
+  if (!game.matchActive || game.matchFinished || game.waiting) return false;
+  for (var c = 0; c < game.grid.length; c++) {
+    if (game.grid[c] && game.grid[c].length > 0) return true;
+  }
+  return false;
+}
+
 export function maybeForfeitActiveMatch() {
   removeAllDropOverlays();
   var boardForGhost = document.getElementById("gameBoard");
   updateGhostPreviewColumn(boardForGhost, null);
 
-  if (game.matchActive && !game.matchFinished) {
+  if (isForfeitLeave()) {
     showForfeitBanner();
   }
-  stopGameClock();
-  resetClocksFromSettings(null);
-  updateClockDisplay();
-  resetGameGrid();
-  game.currentPlayer = "y";
-  game.matchActive = false;
-  game.matchFinished = false;
-  renderGameBoardDOM();
-  updateGameTurnUI();
-  setInMatchUi(false);
-  setPostMatchLobbyCtaVisible(false);
+  resetLocalMatch();
 }
 
 function resetGameGrid() {
@@ -598,7 +611,12 @@ function renderGameBoardDOM() {
     btn.setAttribute("aria-label", "Колонка " + (c + 1));
     var full = game.grid[c].length >= GAME_ROWS;
     if (full) btn.classList.add("game-board__col--full");
-    btn.disabled = full || game.currentPlayer !== "y" || !game.matchActive;
+    btn.disabled =
+      full ||
+      !isHumanTurn() ||
+      !game.matchActive ||
+      game.matchFinished ||
+      game.waiting;
 
     for (var ri = 0; ri < GAME_ROWS; ri++) {
       var slot = document.createElement("span");
@@ -621,30 +639,185 @@ function renderGameBoardDOM() {
   }
 }
 
-function scheduleMockRedMove() {
-  var playable = playableColumns();
-  if (!playable.length || game.currentPlayer !== "r") return;
-  window.setTimeout(function () {
-    if (game.currentPlayer !== "r") return;
-    var cols = playableColumns();
-    if (!cols.length) return;
-    var c = cols[Math.floor(Math.random() * cols.length)];
-    animatePieceDrop(c, "r", function () {
-      game.grid[c].push("r");
-      renderGameBoardDOM();
-      applyIncrementAfterMoveFor("r");
-      var winR = checkWinnerForLastMove(c);
-      if (winR) {
-        finalizeMatchWinner(winR);
-        return;
-      }
-      if (finalizeMatchIfBoardFull()) return;
-      game.currentPlayer = "y";
-      renderGameBoardDOM();
-      updateGameTurnUI();
-      updateClockDisplay();
-    });
-  }, 420);
+function serverGridToLocal(serverGrid, myRole) {
+  var local = [];
+  for (var c = 0; c < GAME_COLS; c++) {
+    local[c] = [];
+    var col = (serverGrid && serverGrid[c]) || [];
+    for (var i = 0; i < col.length; i++) {
+      var p = col[i];
+      if (p === "h") local[c].push(myRole === "host" ? "y" : "r");
+      else if (p === "g") local[c].push(myRole === "guest" ? "y" : "r");
+    }
+  }
+  return local;
+}
+
+function updateWaitingOverlay() {
+  var el = document.getElementById("gameWaiting");
+  if (!el) return;
+  if (game.waiting && game.myRole === "host") {
+    el.removeAttribute("hidden");
+  } else {
+    el.setAttribute("hidden", "");
+  }
+}
+
+function updateOutcomeFromServer(lobby) {
+  if (lobby.status !== "finished") return;
+  stopGameClock();
+  game.matchFinished = true;
+  game.matchActive = false;
+  setInMatchUi(false);
+
+  var banner = document.getElementById("gameTurnBanner");
+  var label = document.getElementById("gameTurnLabel");
+  var myId = game.myTelegramId;
+  var iWon = lobby.winnerId && String(lobby.winnerId) === String(myId);
+  var isDraw = lobby.winReason === "draw";
+
+  if (banner) {
+    banner.classList.remove(
+      "game-turn--compact",
+      "game-turn--outcome-loss",
+      "game-turn--outcome-win",
+      "game-turn--outcome-draw",
+      "game-turn--disk-yellow",
+      "game-turn--disk-red"
+    );
+    banner.classList.add("game-turn--compact");
+    if (isDraw) banner.classList.add("game-turn--outcome-draw");
+    else banner.classList.add(iWon ? "game-turn--outcome-win" : "game-turn--outcome-loss");
+  }
+
+  if (label) {
+    if (isDraw) label.textContent = "Нічия";
+    else if (lobby.winReason === "forfeit") {
+      label.textContent = iWon ? "Суперник вийшов — твоя перемога" : "Ти вийшов — поразка";
+    } else if (lobby.winReason === "timeout") {
+      label.textContent = iWon ? "Час вийшов у суперника" : "Час вийшов — ти програв";
+    } else {
+      label.textContent = iWon ? "Твоя перемога — чотири в ряд!" : "Суперник зібрав чотири в ряд!";
+    }
+  }
+  setPostMatchLobbyCtaVisible(true);
+}
+
+export function resetLocalMatch() {
+  removeAllDropOverlays();
+  stopGameClock();
+  resetGameGrid();
+  game.currentPlayer = "y";
+  game.matchActive = false;
+  game.matchFinished = false;
+  game.waiting = false;
+  game.lobbyId = null;
+  game.myRole = null;
+  game.shareUrl = null;
+  game.status = null;
+  game.opponent = null;
+  setInMatchUi(false);
+  setPostMatchLobbyCtaVisible(false);
+  updateWaitingOverlay();
+  renderGameBoardDOM();
+  updateGameTurnUI();
+  updateClockDisplay();
+}
+
+export function enterWaitingLobby(lobby, options) {
+  options = options || {};
+  resetLocalMatch();
+  game.lobbyId = lobby.id;
+  game.myRole = lobby.myRole || "host";
+  game.myTelegramId =
+    lobby.myRole === "host"
+      ? String(lobby.host && lobby.host.telegramId)
+      : String(lobby.guest && lobby.guest.telegramId);
+  game.shareUrl = lobby.shareUrl;
+  game.status = lobby.status;
+  game.waiting = true;
+  game.opponent = lobby.myRole === "host" ? lobby.guest : lobby.host;
+  game.humanChipColor = lobby.hostChipColor === "red" ? "red" : "yellow";
+  if (lobby.myRole === "guest") {
+    game.humanChipColor = lobby.hostChipColor === "red" ? "yellow" : "red";
+  }
+  resetClocksFromSettings({
+    secondsPerPlayer: lobby.secondsPerPlayer,
+    incrementSeconds: lobby.incrementSeconds,
+  });
+  syncChipVisuals();
+  var meta = document.getElementById("gameMatchMeta");
+  if (meta) meta.textContent = formatLobbyMeta(lobby);
+  var label = document.getElementById("gameTurnLabel");
+  if (label) {
+    label.textContent = options.promotedToHost
+      ? "Ти тепер host — очікуємо суперника…"
+      : "Очікуємо суперника…";
+  }
+  updateWaitingOverlay();
+  setInMatchUi(true);
+  renderGameBoardDOM();
+  updateClockDisplay();
+}
+
+export function applyServerLobby(lobby, options) {
+  options = options || {};
+  if (!lobby) return;
+
+  game.lobbyId = lobby.id;
+  game.myRole = lobby.myRole;
+  game.myTelegramId =
+    lobby.myRole === "host"
+      ? String(lobby.host && lobby.host.telegramId)
+      : String(lobby.guest && lobby.guest.telegramId);
+  game.shareUrl = lobby.shareUrl;
+  game.status = lobby.status;
+  game.waiting = lobby.status === "waiting";
+  game.opponent = lobby.myRole === "host" ? lobby.guest : lobby.host;
+
+  if (lobby.myRole === "host") {
+    game.humanChipColor = lobby.hostChipColor === "red" ? "red" : "yellow";
+  } else {
+    game.humanChipColor = lobby.hostChipColor === "red" ? "yellow" : "red";
+  }
+
+  game.grid = serverGridToLocal(lobby.grid, lobby.myRole);
+  game.incSec = lobby.incrementSeconds || 0;
+
+  if (lobby.myRole === "host") {
+    game.clockYellowSec = lobby.hostClock;
+    game.clockRedSec = lobby.guestClock;
+  } else {
+    game.clockYellowSec = lobby.guestClock;
+    game.clockRedSec = lobby.hostClock;
+  }
+
+  var meta = document.getElementById("gameMatchMeta");
+  if (meta) meta.textContent = formatLobbyMeta(lobby);
+
+  if (lobby.status === "waiting") {
+    enterWaitingLobby(lobby, options);
+    return;
+  }
+
+  game.waiting = false;
+  updateWaitingOverlay();
+  game.matchActive = lobby.status === "playing";
+  game.matchFinished = lobby.status === "finished";
+
+  if (lobby.currentTurnId && game.myTelegramId) {
+    game.currentPlayer = String(lobby.currentTurnId) === String(game.myTelegramId) ? "y" : "r";
+  }
+
+  syncChipVisuals();
+  renderGameBoardDOM();
+  updateGameTurnUI();
+  updateClockDisplay();
+
+  stopGameClock();
+  if (game.matchActive && !game.matchFinished) startGameClock();
+  if (game.matchFinished) updateOutcomeFromServer(lobby);
+  if (game.matchActive) setInMatchUi(true);
 }
 
 export function bindGameBoardInteractions() {
@@ -664,57 +837,24 @@ export function bindGameBoardInteractions() {
 
   board.addEventListener("click", function (ev) {
     var colBtn = ev.target.closest(".game-board__col");
-    if (!colBtn || game.currentPlayer !== "y" || !game.matchActive || game.matchFinished) return;
+    if (!colBtn || !isHumanTurn() || !game.matchActive || game.matchFinished || game.waiting) return;
     if (board.getAttribute("data-drop-active") === "1") return;
     var c = parseInt(colBtn.getAttribute("data-col"), 10);
-    if (Number.isNaN(c) || game.grid[c].length >= GAME_ROWS) return;
+    if (Number.isNaN(c) || game.grid[c].length >= GAME_ROWS || !game.lobbyId) return;
 
-    animatePieceDrop(c, "y", function () {
-      game.grid[c].push("y");
-      renderGameBoardDOM();
-      applyIncrementAfterMoveFor("y");
-      var winY = checkWinnerForLastMove(c);
-      if (winY) {
-        finalizeMatchWinner(winY);
-        return;
-      }
-      if (finalizeMatchIfBoardFull()) return;
-      game.currentPlayer = "r";
-      renderGameBoardDOM();
-      updateGameTurnUI();
-      updateClockDisplay();
-      scheduleMockRedMove();
-    });
-export function openGameFromNewLobby(settings) {
-  game.matchActive = true;
-  game.matchFinished = false;
-  setInMatchUi(true);
-  resetGameGrid();
-  game.currentPlayer = "y";
-  game.humanChipColor = normalizeHumanChip(settings && settings.playerChipColor);
-  var turnBanner = document.getElementById("gameTurnBanner");
-  if (turnBanner) {
-    turnBanner.classList.remove(
-      "game-turn--compact",
-      "game-turn--outcome-loss",
-      "game-turn--outcome-win",
-      "game-turn--outcome-draw"
-    );
-  }
-  setPostMatchLobbyCtaVisible(false);
-  syncChipVisuals();
-  var meta = document.getElementById("gameMatchMeta");
-  if (meta) meta.textContent = formatLobbyMeta(settings);
-  resetClocksFromSettings(settings);
-  renderGameBoardDOM();
-  updateGameTurnUI();
-  updateClockDisplay();
-  startGameClock();
-  navigateToTab("game");
-  window.setTimeout(function () {
-    var first = document.querySelector("#gameBoard .game-board__col:not(:disabled)");
-    if (first && typeof first.focus === "function") first.focus({ preventScroll: true });
-  }, 80);
+    submitMove(game.lobbyId, c)
+      .then(function (lobby) {
+        if (lobby) notifyLobbyState(lobby);
+      })
+      .catch(function (err) {
+        console.warn("[move]", err.message || err);
+        requestServerClockSync();
+      });
+  });
+}
+
+export function openGameFromNewLobby(_settings) {
+  console.warn("[ConnectFour] openGameFromNewLobby is deprecated — use lobby-session");
 }
 export function primeGamePresentation() {
   resetGameGrid();

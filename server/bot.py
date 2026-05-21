@@ -1,0 +1,145 @@
+from __future__ import annotations
+
+import logging
+
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InlineQueryResultArticle,
+    InputTextMessageContent,
+    MenuButtonWebApp,
+    WebAppInfo,
+)
+from telegram.ext import Application, CommandHandler, ContextTypes
+
+from server.config import settings
+from server.share_links import build_lobby_webapp_url, set_bot_username
+
+logger = logging.getLogger(__name__)
+
+_bot_application: Application | None = None
+
+
+def get_bot_application() -> Application | None:
+    return _bot_application
+
+
+def _play_markup() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("▶ Грати", web_app=WebAppInfo(url=settings.webapp_url))]]
+    )
+
+
+async def start_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+
+    if context.args:
+        payload = context.args[0]
+        invite_code = payload[4:].lstrip("_") if payload.startswith("join") else payload
+        if invite_code:
+            await update.message.reply_text(
+                "Connect Four — приєднуйся до партії!",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "▶ Грати",
+                                web_app=WebAppInfo(url=build_lobby_webapp_url(invite_code)),
+                            )
+                        ]
+                    ]
+                ),
+            )
+            return
+
+    await update.message.reply_text(
+        "Connect Four — грай у чотири в ряд онлайн!\n\n"
+        "Натисни кнопку нижче, щоб відкрити гру.",
+        reply_markup=_play_markup(),
+    )
+
+
+async def play_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    await update.message.reply_text("Відкрий гру:", reply_markup=_play_markup())
+
+
+def build_bot_application() -> Application:
+    global _bot_application
+
+    application = Application.builder().token(settings.bot_token).build()
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("play", play_command))
+    _bot_application = application
+    return application
+
+
+async def setup_bot_menu(application: Application) -> None:
+    me = await application.bot.get_me()
+    if me.username:
+        set_bot_username(me.username)
+
+    await application.bot.set_chat_menu_button(
+        menu_button=MenuButtonWebApp(
+            text="Грати",
+            web_app=WebAppInfo(url=settings.webapp_url),
+        )
+    )
+
+
+async def fetch_user_photo_url(telegram_id: int) -> str | None:
+    application = get_bot_application()
+    if not application:
+        return None
+
+    try:
+        photos = await application.bot.get_user_profile_photos(
+            user_id=telegram_id, offset=0, limit=1
+        )
+        if not photos.total_count or not photos.photos:
+            return None
+
+        file_id = photos.photos[0][0].file_id
+        file = await application.bot.get_file(file_id)
+        if not file.file_path:
+            return None
+
+        file_path = file.file_path
+        if file_path.startswith("http://") or file_path.startswith("https://"):
+            return file_path
+        return f"https://api.telegram.org/file/bot{settings.bot_token}/{file_path}"
+    except Exception as exc:
+        logger.warning("Failed to fetch avatar for %s: %s", telegram_id, exc)
+        return None
+
+
+async def prepare_lobby_share(user_id: int, share_url: str, invite_code: str) -> str | None:
+    """Mini Apps 2.0 — prepared message для shareMessage (вибір контактів)."""
+    application = get_bot_application()
+    if not application:
+        return None
+
+    try:
+        result = InlineQueryResultArticle(
+            id=f"lobby_{invite_code}"[:64],
+            title="Connect Four — грати разом",
+            description="Запроси друга в партію",
+            input_message_content=InputTextMessageContent(
+                message_text=f"Connect Four — приєднуйся до моєї партії!\n{share_url}",
+            ),
+            reply_markup=InlineKeyboardMarkup(
+                [[InlineKeyboardButton("▶ Грати", web_app=WebAppInfo(url=build_lobby_webapp_url(invite_code)))]]
+            ),
+        )
+        prepared = await application.bot.save_prepared_inline_message(
+            user_id=user_id,
+            result=result,
+            allow_user_chats=True,
+            allow_group_chats=True,
+        )
+        return prepared.id
+    except Exception as exc:
+        logger.warning("prepare_lobby_share failed: %s", exc)
+        return None

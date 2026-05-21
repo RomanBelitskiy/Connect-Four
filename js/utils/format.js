@@ -13,7 +13,9 @@ export function formatClock(seconds) {
   return m + ":" + (r < 10 ? "0" : "") + r;
 }
 export function formatLobbyMeta(settings) {
-  if (!settings || settings.secondsPerPlayer == null) return "—";
+  if (!settings) return "—";
+  if (settings.timeLabel) return settings.timeLabel;
+  if (settings.secondsPerPlayer == null) return "—";
   var sec = parseInt(String(settings.secondsPerPlayer), 10);
   if (Number.isNaN(sec)) return "—";
   var allowedBase = [15, 30, 60, 120, 180];

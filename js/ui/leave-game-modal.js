@@ -1,14 +1,70 @@
 import { switchTab } from "../app/nav.js";
+import { refreshLobbies } from "../app/shell.js";
 import { game, leaveGate } from "../game/state.js";
+import { leaveActiveLobby } from "../game/lobby-session.js";
+import { isForfeitLeave, maybeForfeitActiveMatch } from "../game/match-board.js";
 
 function getLeaveGameModal() {
   return document.getElementById("leaveGameModal");
 }
 
+function syncLeaveModalCopy() {
+  var modal = getLeaveGameModal();
+  if (!modal) return;
+
+  var eyebrow = document.getElementById("leaveGameEyebrow");
+  var title = document.getElementById("leaveGameTitle");
+  var desc = document.getElementById("leaveGameDesc");
+  var stayBtn = document.getElementById("btnLeaveGameStay");
+  var confirmBtn = document.getElementById("btnLeaveGameConfirm");
+  if (!title || !desc || !confirmBtn) return;
+
+  var forfeit = isForfeitLeave();
+  var hasOpponent = !!(game.opponent && (game.opponent.displayName || game.opponent.username));
+
+  if (forfeit) {
+    if (eyebrow) eyebrow.textContent = "Активна партія";
+    title.textContent = "Вийти з гри?";
+    desc.textContent =
+      "Це зарахується як поразка: суперник переможе, партія закриється, рейтинг зменшиться.";
+    if (stayBtn) stayBtn.textContent = "Залишитись у грі";
+    confirmBtn.textContent = "Вийти (поразка)";
+    confirmBtn.classList.add("btn--modal-risk");
+    confirmBtn.classList.remove("btn--muted");
+  } else if (game.waiting || (game.matchActive && !game.matchFinished)) {
+    if (eyebrow) eyebrow.textContent = "Лобі";
+    title.textContent = "Вийти з лобі?";
+    if (game.myRole === "guest") {
+      desc.textContent = "Ти покинеш кімнату й повернешся до списку.";
+    } else if (hasOpponent) {
+      desc.textContent = "Суперник залишиться в кімнаті й зможе запросити нового гравця.";
+    } else {
+      desc.textContent = "Лобі закриється, і ти повернешся до списку кімнат.";
+    }
+    if (stayBtn) stayBtn.textContent = "Залишитись";
+    confirmBtn.textContent = "Вийти";
+    confirmBtn.classList.remove("btn--modal-risk");
+    confirmBtn.classList.add("btn--muted");
+  } else {
+    if (eyebrow) eyebrow.textContent = "Лобі";
+    title.textContent = "Вийти?";
+    desc.textContent = "Ти повернешся до списку кімнат.";
+    if (stayBtn) stayBtn.textContent = "Залишитись";
+    confirmBtn.textContent = "Вийти";
+    confirmBtn.classList.remove("btn--modal-risk");
+    confirmBtn.classList.add("btn--muted");
+  }
+}
+
 export function requiresLeaveGameConfirm() {
   var gameEl = document.getElementById("view-game");
   var gameVisible = gameEl && !gameEl.hasAttribute("hidden");
-  return !!(gameVisible && game.matchActive && !game.matchFinished);
+  return !!(
+    gameVisible &&
+    game.lobbyId &&
+    (game.matchActive || game.waiting) &&
+    !game.matchFinished
+  );
 }
 
 export function closeLeaveGameConfirmModal(options) {
@@ -38,8 +94,9 @@ export function openLeaveGameConfirmModal(onConfirm, focusReturnEl) {
     if (cbImmediate) cbImmediate();
     return;
   }
+  syncLeaveModalCopy();
   modal.removeAttribute("hidden");
-  var riskBtn = modal.querySelector("#btnLeaveGameConfirm");
+  var riskBtn = document.getElementById("btnLeaveGameConfirm");
   if (riskBtn && typeof riskBtn.focus === "function") riskBtn.focus();
   document.documentElement.style.overflow = "hidden";
 }
@@ -47,10 +104,20 @@ export function openLeaveGameConfirmModal(onConfirm, focusReturnEl) {
 export function requestSwitchToLobby(focusReturnEl) {
   if (!requiresLeaveGameConfirm()) {
     switchTab("lobby");
+    refreshLobbies();
     return;
   }
   openLeaveGameConfirmModal(function () {
-    switchTab("lobby");
+    leaveActiveLobby()
+      .then(function () {
+        maybeForfeitActiveMatch();
+        switchTab("lobby");
+        return refreshLobbies();
+      })
+      .catch(function () {
+        maybeForfeitActiveMatch();
+        switchTab("lobby");
+      });
   }, focusReturnEl);
 }
 
@@ -62,6 +129,12 @@ export function bindLeaveGameConfirmModal() {
       closeLeaveGameConfirmModal({});
     });
   });
+  var stayBtn = document.getElementById("btnLeaveGameStay");
+  if (stayBtn) {
+    stayBtn.addEventListener("click", function () {
+      closeLeaveGameConfirmModal({});
+    });
+  }
   var confirmBtn = document.getElementById("btnLeaveGameConfirm");
   if (confirmBtn) {
     confirmBtn.addEventListener("click", function () {
