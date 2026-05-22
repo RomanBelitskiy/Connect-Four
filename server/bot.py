@@ -7,13 +7,11 @@ from telegram import (
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
     InputTextMessageContent,
-    MenuButtonWebApp,
-    WebAppInfo,
 )
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from server.config import settings
-from server.share_links import build_lobby_webapp_url, set_bot_username
+from server.share_links import build_main_mini_app_link, set_bot_username
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +22,13 @@ def get_bot_application() -> Application | None:
     return _bot_application
 
 
-def _play_markup() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [[InlineKeyboardButton("▶ Грати", web_app=WebAppInfo(url=settings.webapp_url))]]
-    )
+def _play_inline_button(invite_code: str | None = None) -> InlineKeyboardButton:
+    link = build_main_mini_app_link(invite_code)
+    return InlineKeyboardButton("▶ Грати", url=link)
+
+
+def _play_markup(invite_code: str | None = None) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[_play_inline_button(invite_code)]])
 
 
 async def start_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -40,16 +41,7 @@ async def start_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if invite_code:
             await update.message.reply_text(
                 "Connect Four — приєднуйся до партії!",
-                reply_markup=InlineKeyboardMarkup(
-                    [
-                        [
-                            InlineKeyboardButton(
-                                "▶ Грати",
-                                web_app=WebAppInfo(url=build_lobby_webapp_url(invite_code)),
-                            )
-                        ]
-                    ]
-                ),
+                reply_markup=_play_markup(invite_code),
             )
             return
 
@@ -63,7 +55,10 @@ async def start_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def play_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
-    await update.message.reply_text("Відкрий гру:", reply_markup=_play_markup())
+    await update.message.reply_text(
+        "Відкрий гру:",
+        reply_markup=_play_markup(),
+    )
 
 
 def build_bot_application() -> Application:
@@ -76,17 +71,10 @@ def build_bot_application() -> Application:
     return application
 
 
-async def setup_bot_menu(application: Application) -> None:
+async def init_bot_username(application: Application) -> None:
     me = await application.bot.get_me()
     if me.username:
         set_bot_username(me.username)
-
-    await application.bot.set_chat_menu_button(
-        menu_button=MenuButtonWebApp(
-            text="Грати",
-            web_app=WebAppInfo(url=settings.webapp_url),
-        )
-    )
 
 
 async def fetch_user_photo_url(telegram_id: int) -> str | None:
@@ -129,9 +117,7 @@ async def prepare_lobby_share(user_id: int, share_url: str, invite_code: str) ->
             input_message_content=InputTextMessageContent(
                 message_text=f"Connect Four — приєднуйся до моєї партії!\n{share_url}",
             ),
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("▶ Грати", web_app=WebAppInfo(url=build_lobby_webapp_url(invite_code)))]]
-            ),
+            reply_markup=_play_markup(invite_code),
         )
         prepared = await application.bot.save_prepared_inline_message(
             user_id=user_id,

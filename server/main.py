@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from server.bot import build_bot_application, setup_bot_menu
+from server.bot import build_bot_application, init_bot_username
 from server.config import ROOT_DIR, settings
 from server.db import init_db
 from server.lobby_store import init_lobby_tables
@@ -35,9 +35,9 @@ async def lifespan(app: FastAPI):
         await bot_application.start()
         await bot_application.updater.start_polling(drop_pending_updates=True)
         try:
-            await setup_bot_menu(bot_application)
+            await init_bot_username(bot_application)
         except Exception as exc:
-            logger.warning("Bot menu setup skipped: %s", exc)
+            logger.warning("Bot username init skipped: %s", exc)
         logger.info("Telegram bot started")
     else:
         logger.warning(

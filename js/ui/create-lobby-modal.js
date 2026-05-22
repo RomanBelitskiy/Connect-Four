@@ -43,46 +43,138 @@ function clearFakeSelectListPosition(list) {
   list.style.right = "";
   list.style.width = "";
   list.style.maxHeight = "";
+  list.style.overflowY = "";
   list.style.zIndex = "";
 }
 
-function spacingXsPx() {
-  var raw = getComputedStyle(document.documentElement).getPropertyValue("--spacing-xs").trim();
+function spacingTokenPx(token) {
+  var raw = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
   var fs = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
   if (raw.endsWith("rem")) return parseFloat(raw) * fs || 4;
   if (raw.endsWith("px")) return parseFloat(raw) || 4;
-  return 4;
+  return parseFloat(raw) || 4;
+}
+
+function getViewportHeight() {
+  return window.visualViewport ? window.visualViewport.height : window.innerHeight;
+}
+
+function getFakeSelectList(wrap) {
+  return wrap._portaledList || wrap.querySelector(".fake-select__list");
+}
+
+function fakeSelectContains(wrap, target) {
+  if (!wrap || !target) return false;
+  if (wrap.contains(target)) return true;
+  var list = wrap._portaledList;
+  return !!(list && list.contains(target));
+}
+
+function portalFakeSelectList(wrap, list) {
+  var modal = wrap.closest(".modal");
+  if (!modal || wrap._portaledList) return;
+  wrap._portaledList = list;
+  wrap._portaledListParent = list.parentElement;
+  wrap._portaledListNext = list.nextSibling;
+  list.classList.add("fake-select__list--portaled");
+  modal.appendChild(list);
+}
+
+function restoreFakeSelectList(wrap) {
+  var list = wrap._portaledList;
+  if (!list || !wrap._portaledListParent) return;
+  list.classList.remove("fake-select__list--portaled");
+  wrap._portaledListParent.insertBefore(list, wrap._portaledListNext || null);
+  delete wrap._portaledList;
+  delete wrap._portaledListParent;
+  delete wrap._portaledListNext;
+}
+
+function getFakeSelectBounds(wrap) {
+  var viewportH = getViewportHeight();
+  var pad = spacingTokenPx("--spacing-sm");
+  var gap = spacingTokenPx("--spacing-xs");
+  var modal = wrap.closest(".modal");
+  var footer = modal && modal.querySelector(".modal__footer");
+  var header = modal && modal.querySelector(".modal__header");
+
+  var minTop = pad;
+  var maxBottom = viewportH - pad;
+
+  if (header) {
+    minTop = Math.max(minTop, header.getBoundingClientRect().bottom + gap);
+  }
+  if (footer) {
+    maxBottom = Math.min(maxBottom, footer.getBoundingClientRect().top - gap);
+  }
+
+  return { minTop, maxBottom, gap, pad };
 }
 
 function positionFakeSelectList(wrap) {
   var trigger = wrap.querySelector(".fake-select__trigger");
-  var list = wrap.querySelector(".fake-select__list");
+  var list = getFakeSelectList(wrap);
   if (!trigger || !list || list.hidden || !wrap.classList.contains("is-open")) return;
 
+  var bounds = getFakeSelectBounds(wrap);
+  var gap = bounds.gap;
   var rect = trigger.getBoundingClientRect();
-  var gap = spacingXsPx();
-  var pad = spacingXsPx();
-  var viewportH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-  var spaceBelow = viewportH - rect.bottom - gap;
-  var spaceAbove = rect.top - gap;
-  var minComfort = 120;
-  var flipUp = spaceBelow < minComfort && spaceAbove > spaceBelow;
 
   list.style.position = "fixed";
   list.style.left = rect.left + "px";
   list.style.width = rect.width + "px";
   list.style.right = "auto";
-  list.style.zIndex = "60";
+  list.style.zIndex = "50";
+  list.style.maxHeight = "none";
+  list.style.overflowY = "visible";
 
-  var maxLen = viewportH * 0.45;
-  if (flipUp) {
-    list.style.bottom = viewportH - rect.top + gap + "px";
-    list.style.top = "auto";
-    list.style.maxHeight = Math.min(Math.max(0, spaceAbove - pad), maxLen) + "px";
+  var naturalHeight = list.scrollHeight;
+  var spaceBelow = bounds.maxBottom - rect.bottom - gap;
+  var spaceAbove = rect.top - bounds.minTop - gap;
+  var flipUp = false;
+
+  if (naturalHeight <= spaceBelow) {
+    flipUp = false;
+  } else if (naturalHeight <= spaceAbove) {
+    flipUp = true;
   } else {
-    list.style.top = rect.bottom + gap + "px";
+    flipUp = spaceAbove >= spaceBelow;
+  }
+
+  var modalBody = wrap.closest(".modal__body--game");
+  if (modalBody && !flipUp && naturalHeight > spaceBelow) {
+    modalBody.scrollTop += naturalHeight - spaceBelow;
+    rect = trigger.getBoundingClientRect();
+    bounds = getFakeSelectBounds(wrap);
+    spaceBelow = bounds.maxBottom - rect.bottom - gap;
+    spaceAbove = rect.top - bounds.minTop - gap;
+
+    if (naturalHeight <= spaceBelow) {
+      flipUp = false;
+    } else if (naturalHeight <= spaceAbove) {
+      flipUp = true;
+    } else {
+      flipUp = spaceAbove >= spaceBelow;
+    }
+  }
+
+  var available = flipUp ? spaceAbove : spaceBelow;
+  var viewportH = getViewportHeight();
+
+  if (flipUp) {
+    list.style.top = "auto";
+    list.style.bottom = viewportH - rect.top + gap + "px";
+  } else {
     list.style.bottom = "auto";
-    list.style.maxHeight = Math.min(Math.max(0, spaceBelow - pad), maxLen) + "px";
+    list.style.top = rect.bottom + gap + "px";
+  }
+
+  if (naturalHeight > available) {
+    list.style.maxHeight = Math.max(0, available) + "px";
+    list.style.overflowY = "auto";
+  } else {
+    list.style.maxHeight = "none";
+    list.style.overflowY = "visible";
   }
 }
 
@@ -94,10 +186,11 @@ function repositionOpenLobbyFakeSelects() {
 
 function closeFakeSelectWrap(wrap) {
   wrap.classList.remove("is-open");
-  var list = wrap.querySelector(".fake-select__list");
+  var list = getFakeSelectList(wrap);
   var trig = wrap.querySelector(".fake-select__trigger");
   if (list) list.hidden = true;
   clearFakeSelectListPosition(list);
+  restoreFakeSelectList(wrap);
   if (trig) trig.setAttribute("aria-expanded", "false");
 }
 
@@ -203,7 +296,7 @@ export function bindCreateLobbyModal() {
     function docClose(ev) {
       if (modal.hasAttribute("hidden")) return;
       modal.querySelectorAll("[data-fake-select].is-open").forEach(function (fs) {
-        if (!fs.contains(ev.target)) closeFakeSelectWrap(fs);
+        if (!fakeSelectContains(fs, ev.target)) closeFakeSelectWrap(fs);
       });
     }
 
@@ -239,6 +332,7 @@ export function bindCreateLobbyModal() {
           wrap.classList.add("is-open");
           list.hidden = false;
           trigger.setAttribute("aria-expanded", "true");
+          portalFakeSelectList(wrap, list);
           positionFakeSelectList(wrap);
           requestAnimationFrame(function () {
             positionFakeSelectList(wrap);

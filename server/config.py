@@ -17,7 +17,6 @@ PLACEHOLDER_TOKENS = {
 class Settings:
     bot_token: str
     bot_username: str
-    bot_app_short_name: str
     webapp_url: str
     port: int
     database_url: str
@@ -32,7 +31,6 @@ def get_settings() -> Settings:
     return Settings(
         bot_token=os.getenv("BOT_TOKEN", ""),
         bot_username=os.getenv("BOT_USERNAME", ""),
-        bot_app_short_name=os.getenv("BOT_APP_SHORT_NAME", ""),
         webapp_url=os.getenv("WEBAPP_URL", "https://quopnft.uk"),
         port=int(os.getenv("PORT", "3000")),
         database_url=os.getenv("DATABASE_URL", ""),

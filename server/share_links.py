@@ -16,16 +16,27 @@ def get_bot_username() -> str | None:
     return _cached_username or env or None
 
 
-def build_lobby_share_url(invite_code: str) -> str:
+def _https_fallback(startapp: str | None = None) -> str:
+    base = settings.webapp_url.rstrip("/")
+    if startapp:
+        return f"{base}/?join={startapp}"
+    return base
+
+
+def build_main_mini_app_link(startapp: str | None = None) -> str:
+    """
+    Main Mini App deep link — той самий режим, що «Відкрити застосунок» у профілі бота.
+    Формат: https://t.me/bot?startapp або ?startapp=код
+    """
     username = get_bot_username()
-    if username:
-        short = (settings.bot_app_short_name or "").strip().strip("/")
-        if short:
-            return f"https://t.me/{username}/{short}?startapp={invite_code}"
-        return f"https://t.me/{username}?startapp={invite_code}"
-    return f"{settings.webapp_url}/?join={invite_code}"
+    if not username:
+        return _https_fallback(startapp)
+
+    base = f"https://t.me/{username}"
+    if startapp:
+        return f"{base}?startapp={startapp}"
+    return f"{base}?startapp"
 
 
-def build_lobby_webapp_url(invite_code: str) -> str:
-    """Пряме посилання на Web App (кнопки бота, не для шерингу)."""
-    return f"{settings.webapp_url}/?join={invite_code}"
+def build_lobby_share_url(invite_code: str) -> str:
+    return build_main_mini_app_link(invite_code)
