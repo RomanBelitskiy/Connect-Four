@@ -1,13 +1,16 @@
 import { initialFrom } from "../utils/format.js";
 import { avatarHtml, applyAvatarElement } from "../utils/avatar.js";
-import {
-  fetchHistory,
-  fetchLeaderboard,
-  fetchLobbies,
-  fetchOnlineCount,
-} from "../api/client.js";
+import { fetchHistory, fetchLeaderboard, fetchOnlineCount } from "../api/client.js";
+import { renderLobbies, scheduleLobbyListRefresh, flushLobbyListRefresh, invalidateLobbyListCache } from "./lobby-list.js";
+import { isLobbyFeedOpen, setLobbyFeedConnectionHandler } from "../api/lobby-feed.js";
 import { game } from "../game/state.js";
 import { initTelegramApp } from "./telegram.js";
+import { t, onLanguageChange } from "../i18n/index.js";
+import { gameLabelKey } from "../games/index.js";
+import { refreshGameTexts } from "../game/match-board.js";
+import { syncLeaveModalCopy } from "../ui/leave-game-modal.js";
+import { syncReplaceLobbyModalCopy } from "../ui/replace-lobby-modal.js";
+import { syncCreateLobbySelectLabels } from "../ui/create-lobby-modal.js";
 
 /** @type {object|null} */
 export var currentUser = null;
@@ -33,80 +36,76 @@ export async function refreshOnlineCount() {
   }
 }
 
-export async function renderLobbies() {
-  var list = document.getElementById("lobbyList");
-  if (!list) return;
+export { renderLobbies, flushLobbyListRefresh as refreshLobbies };
 
-  try {
-    var rooms = await fetchLobbies();
-    if (!rooms.length) {
-      renderEmptyList(list, "Немає відкритих кімнат. Створи свою!");
-      return;
-    }
-    list.innerHTML = rooms
-      .map(function (room) {
-        var mineClass = room.isMine ? " lobby-card--mine" : "";
-        var meta = room.isMine ? "Твоє лобі · очікуємо" : "Відкрите лобі";
-        var action = room.isMine ? "ти" : "join";
-        var avatar = avatarHtml({
-          baseClass: "lobby-card__initial",
-          displayName: room.hostName,
-          photoUrl: room.hostPhotoUrl,
-        });
-        return (
-          '<li class="lobby-card' +
-          mineClass +
-          '" data-id="' +
-          room.id +
-          '" data-mine="' +
-          (room.isMine ? "1" : "0") +
-          '">' +
-          avatar +
-          '<div class="lobby-card__body">' +
-          '<p class="lobby-card__title">' +
-          room.title +
-          "</p>" +
-          '<p class="lobby-card__meta">' +
-          meta +
-          "</p>" +
-          "</div>" +
-          '<div class="lobby-card__side">' +
-          '<span class="lobby-card__time">' +
-          room.timeLabel +
-          "</span>" +
-          '<span class="pct-up" aria-hidden="true">\u2197 ' +
-          action +
-          "</span>" +
-          "</div>" +
-          "</li>"
-        );
-      })
-      .join("");
-  } catch (_e) {
-    renderEmptyList(list, "Не вдалося завантажити кімнати");
+var lobbyPollTimer = null;
+/** Рідкий fallback, коли WS живий. */
+var LOBBY_POLL_WS_OPEN_MS = 25000;
+/** Частіший poll без WS. */
+var LOBBY_POLL_WS_DOWN_MS = 5000;
+
+function isLobbyViewVisible() {
+  var lobbyView = document.getElementById("view-lobby");
+  return !!(lobbyView && !lobbyView.hasAttribute("hidden"));
+}
+
+export function refreshLobbiesIfVisible() {
+  if (!isLobbyViewVisible()) return;
+  if (isLobbyFeedOpen()) {
+    scheduleLobbyListRefresh();
+  } else {
+    void flushLobbyListRefresh();
   }
 }
 
-var lobbyPollTimer = null;
+function pollIntervalMs() {
+  return isLobbyFeedOpen() ? LOBBY_POLL_WS_OPEN_MS : LOBBY_POLL_WS_DOWN_MS;
+}
+
+function scheduleNextPoll() {
+  if (lobbyPollTimer) {
+    clearTimeout(lobbyPollTimer);
+    lobbyPollTimer = null;
+  }
+  lobbyPollTimer = window.setTimeout(function () {
+    lobbyPollTimer = null;
+    if (isLobbyViewVisible()) {
+      if (isLobbyFeedOpen()) {
+        scheduleLobbyListRefresh();
+      } else {
+        void flushLobbyListRefresh();
+      }
+    }
+    scheduleNextPoll();
+  }, pollIntervalMs());
+}
 
 export function startLobbyListPolling() {
-  if (lobbyPollTimer) return;
-  lobbyPollTimer = window.setInterval(function () {
-    var lobbyView = document.getElementById("view-lobby");
-    if (lobbyView && !lobbyView.hasAttribute("hidden")) {
-      renderLobbies();
+  setLobbyFeedConnectionHandler(function () {
+    scheduleNextPoll();
+    if (isLobbyViewVisible()) {
+      void flushLobbyListRefresh();
     }
-  }, 4000);
+  });
+
+  scheduleNextPoll();
+
+  if (!document.documentElement.dataset.lobbyVisibilityBound) {
+    document.documentElement.dataset.lobbyVisibilityBound = "1";
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible" && isLobbyViewVisible()) {
+        void flushLobbyListRefresh();
+      }
+    });
+  }
 }
 
 export function stopLobbyListPolling() {
   if (lobbyPollTimer) {
-    window.clearInterval(lobbyPollTimer);
+    clearTimeout(lobbyPollTimer);
     lobbyPollTimer = null;
   }
 }
-
-export var refreshLobbies = renderLobbies;
 
 export async function renderHistory() {
   var list = document.getElementById("historyList");
@@ -115,7 +114,7 @@ export async function renderHistory() {
   try {
     var rows = await fetchHistory();
     if (!rows.length) {
-      renderEmptyList(list, "Ще немає зіграних партій");
+      renderEmptyList(list, t("profile.historyEmpty"));
       return;
     }
     list.innerHTML = rows
@@ -153,7 +152,7 @@ export async function renderHistory() {
       })
       .join("");
   } catch (_e) {
-    renderEmptyList(list, "Не вдалося завантажити історію");
+    renderEmptyList(list, t("profile.historyError"));
   }
 }
 
@@ -164,7 +163,7 @@ export async function renderLeaderboard() {
   try {
     var rows = await fetchLeaderboard();
     if (!rows.length) {
-      renderEmptyList(list, "Рейтинг з\u2019явиться після перших ігор");
+      renderEmptyList(list, t("leaderboard.empty"));
       return;
     }
     list.innerHTML = rows
@@ -198,14 +197,16 @@ export async function renderLeaderboard() {
           '<span class="lb-row__points">' +
           row.score +
           "</span>" +
-          '<span class="lb-row__label">рейтинг</span>' +
+          '<span class="lb-row__label">' +
+          t("leaderboard.scoreLabel") +
+          "</span>" +
           "</div>" +
           "</li>"
         );
       })
       .join("");
   } catch (_e) {
-    renderEmptyList(list, "Не вдалося завантажити рейтинг");
+    renderEmptyList(list, t("leaderboard.loadError"));
   }
 }
 
@@ -232,7 +233,7 @@ export function setProfileFromUser(user) {
   var idEl = document.getElementById("profileId");
   var avatarEl = document.getElementById("profileAvatar");
 
-  var displayName = user.displayName || "Гравець";
+  var displayName = user.displayName || t("profile.player");
 
   if (nameEl) nameEl.textContent = displayName;
 
@@ -250,7 +251,7 @@ export function setProfileFromUser(user) {
   var r = document.getElementById("statRating");
   if (wr) wr.textContent = user.gamesPlayed > 0 ? user.winrate + "%" : "—";
   if (g) g.textContent = String(user.gamesPlayed || 0);
-  if (r) r.textContent = String(user.rating || 1500);
+  if (r) r.textContent = String(user.rating ?? 100);
 }
 
 export function setProfileFromTg(tg) {
@@ -260,12 +261,12 @@ export function setProfileFromTg(tg) {
   var idEl = document.getElementById("profileId");
   var avatarEl = document.getElementById("profileAvatar");
 
-  var displayName = "Гравець";
+  var displayName = t("profile.player");
   if (u && nameEl && idEl) {
     displayName =
       [u.first_name, u.last_name].filter(Boolean).join(" ") ||
       u.username ||
-      "Гравець";
+      t("profile.player");
     nameEl.textContent = displayName;
     idEl.textContent = "id: " + u.id;
     game.myTelegramId = String(u.id);
@@ -290,12 +291,23 @@ export function setProfileFromTg(tg) {
   var r = document.getElementById("statRating");
   if (wr) wr.textContent = "—";
   if (g) g.textContent = "0";
-  if (r) r.textContent = "1500";
+  if (r) r.textContent = "100";
 }
 
 export function setProfileLoading(isLoading) {
   var nameEl = document.getElementById("profileName");
   if (nameEl && isLoading) {
-    nameEl.textContent = "Завантаження…";
+    nameEl.textContent = t("loading");
   }
 }
+
+onLanguageChange(function () {
+  invalidateLobbyListCache();
+  renderLobbies();
+  renderHistory();
+  renderLeaderboard();
+  refreshGameTexts();
+  syncLeaveModalCopy();
+  syncReplaceLobbyModalCopy();
+  syncCreateLobbySelectLabels();
+});

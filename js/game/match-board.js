@@ -1,867 +1,119 @@
-import { game, GAME_COLS, GAME_ROWS } from "./state.js";
-import { formatClock, formatLobbyMeta, prefersReducedMotion } from "../utils/format.js";
+/**
+ * Match screen orchestration — re-exports session/UI modules and wires board input.
+ */
+import { game, GAME_ROWS } from "./state.js";
 import { submitMove, syncLobby } from "../api/client.js";
 import { notifyLobbyState } from "../api/ws.js";
+import { t } from "../i18n/index.js";
+import * as connectFour from "../games/connect-four-board.js";
+import * as boardRuntime from "../games/board-runtime.js";
+import { markOptimisticMove } from "./move-guard.js";
+import { syncChipVisuals } from "./match-chips.js";
+import { resetClocksFromSettings, updateClockDisplay } from "./match-clock.js";
+import {
+  setTurnLabelKey,
+  updateGamePresentation,
+  updateGameTurnUI,
+  refreshMatchMeta,
+  showForfeitBanner,
+} from "./match-ui.js";
+import {
+  applyServerLobby,
+  applyServerLobbyPlaying,
+  enterWaitingLobby,
+  resetLocalMatch,
+} from "./match-session.js";
+import { bindPregameLobby, refreshPregameTexts } from "./pregame-lobby.js";
 
 let navigateToTab = function (tab) {
-  console.warn("[ConnectFour] navigate not wired:", tab);
+  console.warn("[match] navigate not wired:", tab);
 };
 
 export function setNavigateToTab(fn) {
   navigateToTab = typeof fn === "function" ? fn : navigateToTab;
 }
 
-function normalizeHumanChip(value) {
-  return value === "red" ? "red" : "yellow";
-}
-
-function opponentChipColor() {
-  return game.humanChipColor === "red" ? "yellow" : "red";
-}
-
-function syncChipVisuals() {
-  game.humanChipColor = normalizeHumanChip(game.humanChipColor);
-  var oppHue = opponentChipColor();
-
-  var humanPanel = document.getElementById("gameClockYellowPanel");
-  if (humanPanel) {
-    humanPanel.classList.remove(
-      "game-clock--yellow",
-      "game-clock--player",
-      "game-clock--chip-yellow",
-      "game-clock--chip-red"
-    );
-    humanPanel.classList.add("game-clock--player");
-    humanPanel.classList.add(
-      game.humanChipColor === "red" ? "game-clock--chip-red" : "game-clock--chip-yellow"
-    );
-  }
-
-  var oppPanel = document.getElementById("gameClockRedPanel");
-  if (oppPanel) {
-    oppPanel.classList.remove("game-clock--opponent", "game-clock--chip-yellow", "game-clock--chip-red");
-    oppPanel.classList.add("game-clock--opponent");
-    oppPanel.classList.add(oppHue === "red" ? "game-clock--chip-red" : "game-clock--chip-yellow");
-  }
-
-  var humanLegend = document.getElementById("gameLegendHumanDisk");
-  if (humanLegend) {
-    humanLegend.classList.remove("game-board__legend-disk--yellow", "game-board__legend-disk--chip-red");
-    humanLegend.classList.add(
-      game.humanChipColor === "red"
-        ? "game-board__legend-disk--chip-red"
-        : "game-board__legend-disk--yellow"
-    );
-  }
-
-  var oppLegend = document.getElementById("gameLegendOppDisk");
-  if (oppLegend) {
-    oppLegend.classList.remove("game-board__legend-disk--yellow", "game-board__legend-disk--chip-red");
-    oppLegend.classList.add(
-      oppHue === "red" ? "game-board__legend-disk--chip-red" : "game-board__legend-disk--yellow"
-    );
-  }
-}
-function pieceModifierForDrop(moverKind) {
-  if (moverKind === "y") {
-    return game.humanChipColor === "red" ? "game-board__piece--red" : "game-board__piece--yellow";
-  }
-  return opponentChipColor() === "red" ? "game-board__piece--red" : "game-board__piece--yellow";
-}
-
-function removeAllDropOverlays() {
-  document.querySelectorAll(".game-board__piece--falling-overlay").forEach(function (el) {
-    el.remove();
-  });
-  var board = document.getElementById("gameBoard");
-  if (board) board.removeAttribute("data-drop-active");
-}
-
-function updateGhostPreviewColumn(board, colBtn) {
-  if (!board) return;
-  board.querySelectorAll(".game-board__ghost").forEach(function (el) {
-    el.remove();
-  });
-
-  if (
-    !colBtn ||
-    colBtn.disabled ||
-    game.matchFinished ||
-    !game.matchActive ||
-    !isHumanTurn() ||
-    board.getAttribute("data-drop-active") === "1"
-  ) {
-    return;
-  }
-
-  var c = parseInt(colBtn.getAttribute("data-col"), 10);
-  if (Number.isNaN(c) || game.grid[c].length >= GAME_ROWS) return;
-
-  var rowIndex = game.grid[c].length;
-  var slots = colBtn.querySelectorAll(".game-board__slot");
-  var targetSlot = slots[rowIndex];
-  if (!targetSlot) return;
-
-  var ghost = document.createElement("span");
-  ghost.className =
-    "game-board__piece " + pieceModifierForDrop("y") + " game-board__ghost";
-  ghost.setAttribute("aria-hidden", "true");
-  targetSlot.appendChild(ghost);
-}
-
-function animatePieceDrop(colIndex, moverKind, done) {
-  var board = document.getElementById("gameBoard");
-  var finish = typeof done === "function" ? done : function () {};
-
-  if (!board || prefersReducedMotion()) {
-    finish();
-    return;
-  }
-
-  var colBtn = board.querySelector('.game-board__col[data-col="' + colIndex + '"]');
-  if (!colBtn || game.grid[colIndex].length >= GAME_ROWS) {
-    finish();
-    return;
-  }
-
-  var rowIndex = game.grid[colIndex].length;
-  var slots = colBtn.querySelectorAll(".game-board__slot");
-  var targetSlot = slots[rowIndex];
-  if (!targetSlot) {
-    finish();
-    return;
-  }
-
-  board.setAttribute("data-drop-active", "1");
-  updateGhostPreviewColumn(board, null);
-
-  var cr = colBtn.getBoundingClientRect();
-  var sr = targetSlot.getBoundingClientRect();
-  var pw = sr.height * 0.78;
-
-  var gapAbove = (function () {
-    var raw = getComputedStyle(document.documentElement).getPropertyValue("--spacing-xs").trim();
-    var fs = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-    if (raw.endsWith("rem")) return parseFloat(raw) * fs;
-    return parseFloat(raw) || 4;
-  })();
-
-  var piece = document.createElement("span");
-  piece.className =
-    "game-board__piece " + pieceModifierForDrop(moverKind) + " game-board__piece--falling-overlay";
-  piece.setAttribute("aria-hidden", "true");
-  piece.style.width = pw + "px";
-  piece.style.height = pw + "px";
-  piece.style.left = sr.left + sr.width / 2 - pw / 2 + "px";
-  var startTop = cr.top - pw - gapAbove;
-  var endTop = sr.top + sr.height / 2 - pw / 2;
-  piece.style.top = startTop + "px";
-  document.body.appendChild(piece);
-
-  var cleaned = false;
-  function cleanup() {
-    if (cleaned) return;
-    cleaned = true;
-    piece.removeEventListener("transitionend", onTransitionEnd);
-    if (piece.parentNode) piece.parentNode.removeChild(piece);
-    board.removeAttribute("data-drop-active");
-    finish();
-  }
-
-  function onTransitionEnd(ev) {
-    if (ev.propertyName === "top") cleanup();
-  }
-
-  piece.addEventListener("transitionend", onTransitionEnd);
-
-  window.requestAnimationFrame(function () {
-    window.requestAnimationFrame(function () {
-      piece.style.top = endTop + "px";
-    });
-  });
-
-  window.setTimeout(function () {
-    cleanup();
-  }, 900);
-}
-function resetClocksFromSettings(settings) {
-  var allowedBase = [15, 30, 60, 120, 180];
-  var baseSec =
-    settings && settings.secondsPerPlayer != null
-      ? parseInt(String(settings.secondsPerPlayer), 10)
-      : 60;
-  if (Number.isNaN(baseSec) || allowedBase.indexOf(baseSec) === -1) baseSec = 60;
-  var inc =
-    settings && settings.incrementSeconds != null
-      ? parseInt(String(settings.incrementSeconds), 10)
-      : 1;
-  if (Number.isNaN(inc) || inc < 0) inc = 0;
-  game.clockYellowSec = baseSec;
-  game.clockRedSec = baseSec;
-  game.incSec = inc;
-}
-
-function stopGameClock() {
-  if (game.clockTimerId != null) {
-    window.clearInterval(game.clockTimerId);
-    game.clockTimerId = null;
-  }
-}
-
-function updateClockDisplay() {
-  var yVal = document.getElementById("gameClockYellowValue");
-  var rVal = document.getElementById("gameClockRedValue");
-  var yPanel = document.getElementById("gameClockYellowPanel");
-  var rPanel = document.getElementById("gameClockRedPanel");
-  if (yVal) yVal.textContent = formatClock(game.clockYellowSec);
-  if (rVal) rVal.textContent = formatClock(game.clockRedSec);
-  if (yPanel && rPanel) {
-    yPanel.classList.toggle(
-      "is-active",
-      game.matchActive && !game.matchFinished && game.currentPlayer === "y"
-    );
-    rPanel.classList.toggle(
-      "is-active",
-      game.matchActive && !game.matchFinished && game.currentPlayer === "r"
-    );
-  }
-}
-
-function isHumanTurn() {
-  return game.currentPlayer === "y";
-}
-
-function requestServerClockSync() {
-  if (!game.lobbyId || game.matchFinished) return;
-  syncLobby(game.lobbyId)
-    .then(function (lobby) {
-      if (lobby) notifyLobbyState(lobby);
-    })
-    .catch(function () {});
-}
-
-function endGameTimeLoss(loser) {
-  if (!game.matchActive || game.matchFinished) return;
-  stopGameClock();
-  game.matchFinished = true;
-  game.matchActive = false;
-  setInMatchUi(false);
-  var banner = document.getElementById("gameTurnBanner");
-  var label = document.getElementById("gameTurnLabel");
-  if (banner) {
-    banner.classList.remove(
-      "game-turn--compact",
-      "game-turn--outcome-loss",
-      "game-turn--outcome-win",
-      "game-turn--outcome-draw",
-      "game-turn--disk-yellow",
-      "game-turn--disk-red"
-    );
-    banner.classList.add(
-      "game-turn--compact",
-      loser === "y" ? "game-turn--outcome-loss" : "game-turn--outcome-win"
-    );
-  }
-  if (label) {
-    label.textContent =
-      loser === "y"
-        ? "Час вичерпано — ти програв"
-        : "Час суперника вичерпано — твоя перемога";
-  }
-  renderGameBoardDOM();
-  updateClockDisplay();
-  setPostMatchLobbyCtaVisible(true);
-}
-
-function tickGameClock() {
-  if (!game.matchActive || game.matchFinished) return;
-  if (game.currentPlayer === "y") {
-    game.clockYellowSec = Math.max(0, game.clockYellowSec - 1);
-    if (game.clockYellowSec <= 0) {
-      requestServerClockSync();
-      return;
-    }
-  } else {
-    game.clockRedSec = Math.max(0, game.clockRedSec - 1);
-    if (game.clockRedSec <= 0) {
-      requestServerClockSync();
-      return;
-    }
-  }
-  updateClockDisplay();
-}
-
-function startGameClock() {
-  stopGameClock();
-  game.clockTimerId = window.setInterval(tickGameClock, 1000);
-}
-
-function triggerBonusAnim(side) {
-  if (game.incSec <= 0) return;
-  var id = side === "yellow" ? "gameClockYellowBonus" : "gameClockRedBonus";
-  var el = document.getElementById(id);
-  if (!el) return;
-  el.textContent = "+" + game.incSec + " с";
-  el.classList.remove("is-pulsing");
-  void el.offsetWidth;
-  el.classList.add("is-pulsing");
-  function onEnd() {
-    el.removeEventListener("animationend", onEnd);
-    el.classList.remove("is-pulsing");
-    el.textContent = "";
-  }
-  el.addEventListener("animationend", onEnd);
-}
-
-function applyIncrementAfterMoveFor(mover) {
-  if (!game.matchActive || game.matchFinished) return;
-  if (game.incSec <= 0) return;
-  if (mover === "y") {
-    game.clockYellowSec += game.incSec;
-    triggerBonusAnim("yellow");
-  } else {
-    game.clockRedSec += game.incSec;
-    triggerBonusAnim("red");
-  }
-  updateClockDisplay();
-}
-
-function setInMatchUi(on) {
-  var root = document.getElementById("app");
-  if (root) root.classList.toggle("app--in-match", !!on);
-}
-
-function setPostMatchLobbyCtaVisible(visible) {
-  var btn = document.getElementById("btnGameReturnLobby");
-  var foot = document.querySelector(".game-screen__footer");
-  if (btn) {
-    if (visible) btn.removeAttribute("hidden");
-    else btn.setAttribute("hidden", "");
-  }
-  if (foot) foot.classList.toggle("game-screen__footer--post-match", !!visible);
-}
-
-function scheduleForfeitBannerDismiss(wrap, bannerEl) {
-  if (!wrap || !wrap.parentNode || wrap.getAttribute("data-forfeit-exiting") === "1") return;
-  wrap.setAttribute("data-forfeit-exiting", "1");
-
-  if (prefersReducedMotion()) {
-    wrap.remove();
-    return;
-  }
-
-  var targetH = wrap.scrollHeight;
-  wrap.style.maxHeight = targetH + "px";
-  void wrap.offsetHeight;
-
-  window.requestAnimationFrame(function () {
-    bannerEl.classList.add("lobby-forfeit-banner--exit");
-    wrap.classList.add("lobby-forfeit-banner-wrap--exit");
-  });
-
-  var finished = false;
-  function teardown() {
-    if (finished) return;
-    finished = true;
-    wrap.removeEventListener("transitionend", onTe);
-    if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
-  }
-
-  function onTe(ev) {
-    if (ev.target !== wrap) return;
-    if (ev.propertyName !== "max-height") return;
-    teardown();
-  }
-
-  wrap.addEventListener("transitionend", onTe);
-  window.setTimeout(teardown, 1100);
-}
-
-function showForfeitBanner() {
-  var intro = document.querySelector(".lobby-intro");
-  if (!intro) return;
-
-  var oldWrap = document.getElementById("gameForfeitBannerWrap");
-  if (oldWrap) {
-    var tid = oldWrap.getAttribute("data-dismiss-timer-id");
-    if (tid) window.clearTimeout(Number(tid));
-    oldWrap.remove();
-  }
-
-  var wrap = document.createElement("div");
-  wrap.className = "lobby-forfeit-banner-wrap";
-  wrap.id = "gameForfeitBannerWrap";
-
-  var p = document.createElement("p");
-  p.className = "lobby-forfeit-banner";
-  p.id = "gameForfeitBanner";
-  p.setAttribute("role", "status");
-  p.textContent =
-    "Ти покинув партію до її завершення — це зараховано як поразку.";
-
-  wrap.appendChild(p);
-
-  var pulse = intro.querySelector(".lobby-intro__pulse");
-  if (pulse && pulse.nextSibling) intro.insertBefore(wrap, pulse.nextSibling);
-  else intro.appendChild(wrap);
-
-  var dismissMs = 7000;
-  var timerId = window.setTimeout(function () {
-    scheduleForfeitBannerDismiss(wrap, p);
-  }, dismissMs);
-  wrap.setAttribute("data-dismiss-timer-id", String(timerId));
-}
+export {
+  applyServerLobby,
+  applyServerLobbyPlaying,
+  enterWaitingLobby,
+  resetLocalMatch,
+};
 
 export function isForfeitLeave() {
+  if (game.myRole === "spectator") return false;
   if (!game.matchActive || game.matchFinished || game.waiting) return false;
-  for (var c = 0; c < game.grid.length; c++) {
-    if (game.grid[c] && game.grid[c].length > 0) return true;
-  }
-  return false;
+  return connectFour.hasAnyPieces();
 }
 
 export function maybeForfeitActiveMatch() {
-  removeAllDropOverlays();
-  var boardForGhost = document.getElementById("gameBoard");
-  updateGhostPreviewColumn(boardForGhost, null);
-
-  if (isForfeitLeave()) {
-    showForfeitBanner();
-  }
-  resetLocalMatch();
-}
-
-function resetGameGrid() {
-  game.grid = [];
-  for (var i = 0; i < GAME_COLS; i++) game.grid.push([]);
-}
-
-function isBoardFull() {
-  return playableColumns().length === 0;
-}
-
-function readBoardCell(columnIndex, rowFromBottom) {
-  if (
-    columnIndex < 0 ||
-    columnIndex >= GAME_COLS ||
-    rowFromBottom < 0 ||
-    rowFromBottom >= GAME_ROWS
-  ) {
-    return null;
-  }
-  if (game.grid[columnIndex].length <= rowFromBottom) return null;
-  return game.grid[columnIndex][rowFromBottom];
-}
-
-function checkWinnerForLastMove(moveColumn) {
-  var rowIdx = game.grid[moveColumn].length - 1;
-  var piece = readBoardCell(moveColumn, rowIdx);
-  if (piece !== "y" && piece !== "r") return null;
-
-  function arm(dc, dr) {
-    var n = 0;
-    var c = moveColumn + dc;
-    var r = rowIdx + dr;
-    while (readBoardCell(c, r) === piece) {
-      n++;
-      c += dc;
-      r += dr;
-    }
-    return n;
-  }
-
-  var lineDefs = [
-    [
-      [-1, 0],
-      [1, 0],
-    ],
-    [
-      [0, -1],
-      [0, 1],
-    ],
-    [
-      [-1, -1],
-      [1, 1],
-    ],
-    [
-      [-1, 1],
-      [1, -1],
-    ],
-  ];
-
-  var d = 0;
-  for (; d < lineDefs.length; d++) {
-    var a = lineDefs[d][0];
-    var b = lineDefs[d][1];
-    var total = 1 + arm(a[0], a[1]) + arm(b[0], b[1]);
-    if (total >= 4) return piece;
-  }
-  return null;
-}
-
-function finalizeMatchWinner(winner) {
-  if (game.matchFinished) return;
-  stopGameClock();
-  game.matchFinished = true;
-  game.matchActive = false;
-  setInMatchUi(false);
-  var banner = document.getElementById("gameTurnBanner");
-  var label = document.getElementById("gameTurnLabel");
-  var humanLost = winner === "r";
-
-  if (banner) {
-    banner.classList.remove(
-      "game-turn--compact",
-      "game-turn--outcome-loss",
-      "game-turn--outcome-win",
-      "game-turn--outcome-draw",
-      "game-turn--disk-yellow",
-      "game-turn--disk-red"
-    );
-    banner.classList.add(
-      "game-turn--compact",
-      humanLost ? "game-turn--outcome-loss" : "game-turn--outcome-win"
-    );
-  }
-  if (label) {
-    label.textContent = humanLost
-      ? "Суперник зібрав чотири в ряд!"
-      : "Твоя перемога — чотири в ряд!";
-  }
-  renderGameBoardDOM();
-  updateClockDisplay();
-  setPostMatchLobbyCtaVisible(true);
-}
-
-function finalizeMatchIfBoardFull() {
-  if (!isBoardFull()) return false;
-  if (!game.matchFinished) {
-    stopGameClock();
-    game.matchFinished = true;
-    game.matchActive = false;
-    setInMatchUi(false);
-    var label = document.getElementById("gameTurnLabel");
-    if (label) label.textContent = "Нічия — поле заповнене";
-    var drawBanner = document.getElementById("gameTurnBanner");
-    if (drawBanner) {
-      drawBanner.classList.remove(
-        "game-turn--compact",
-        "game-turn--outcome-loss",
-        "game-turn--outcome-win",
-        "game-turn--outcome-draw",
-        "game-turn--disk-yellow",
-        "game-turn--disk-red"
-      );
-      drawBanner.classList.add("game-turn--compact", "game-turn--outcome-draw");
-    }
-    renderGameBoardDOM();
-    updateClockDisplay();
-    setPostMatchLobbyCtaVisible(true);
-  }
-  return true;
-}
-function updateGameTurnUI() {
-  var banner = document.getElementById("gameTurnBanner");
-  var label = document.getElementById("gameTurnLabel");
-  if (!banner || !label) return;
-  if (!game.matchActive && game.matchFinished) return;
-  banner.classList.remove(
-    "game-turn--compact",
-    "game-turn--outcome-loss",
-    "game-turn--outcome-win",
-    "game-turn--outcome-draw",
-    "game-turn--disk-yellow",
-    "game-turn--disk-red"
-  );
-  if (game.currentPlayer === "y") {
-    if (game.humanChipColor === "red") {
-      banner.classList.add("game-turn--disk-red");
-      label.textContent = "Твій хід — червоні фішки";
-    } else {
-      banner.classList.add("game-turn--disk-yellow");
-      label.textContent = "Твій хід — жовті фішки";
-    }
-  } else {
-    if (opponentChipColor() === "red") {
-      banner.classList.add("game-turn--disk-red");
-      label.textContent = "Хід суперника — червоні фішки";
-    } else {
-      banner.classList.add("game-turn--disk-yellow");
-      label.textContent = "Хід суперника — жовті фішки";
-    }
-  }
-}
-
-function playableColumns() {
-  var list = [];
-  for (var i = 0; i < GAME_COLS; i++) if (game.grid[i].length < GAME_ROWS) list.push(i);
-  return list;
-}
-
-function renderGameBoardDOM() {
+  connectFour.removeAllDropOverlays();
   var board = document.getElementById("gameBoard");
-  if (!board) return;
-  board.innerHTML = "";
-
-  for (var c = 0; c < GAME_COLS; c++) {
-    var btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "game-board__col";
-    btn.setAttribute("data-col", String(c));
-    btn.setAttribute("aria-label", "Колонка " + (c + 1));
-    var full = game.grid[c].length >= GAME_ROWS;
-    if (full) btn.classList.add("game-board__col--full");
-    btn.disabled =
-      full ||
-      !isHumanTurn() ||
-      !game.matchActive ||
-      game.matchFinished ||
-      game.waiting;
-
-    for (var ri = 0; ri < GAME_ROWS; ri++) {
-      var slot = document.createElement("span");
-      slot.className = "game-board__slot";
-      var pieceKind = game.grid[c][ri];
-      if (pieceKind === "y") {
-        var py = document.createElement("span");
-        py.className = "game-board__piece " + pieceModifierForDrop("y");
-        py.setAttribute("aria-hidden", "true");
-        slot.appendChild(py);
-      } else if (pieceKind === "r") {
-        var pr = document.createElement("span");
-        pr.className = "game-board__piece " + pieceModifierForDrop("r");
-        pr.setAttribute("aria-hidden", "true");
-        slot.appendChild(pr);
-      }
-      btn.appendChild(slot);
-    }
-    board.appendChild(btn);
-  }
-}
-
-function serverGridToLocal(serverGrid, myRole) {
-  var local = [];
-  for (var c = 0; c < GAME_COLS; c++) {
-    local[c] = [];
-    var col = (serverGrid && serverGrid[c]) || [];
-    for (var i = 0; i < col.length; i++) {
-      var p = col[i];
-      if (p === "h") local[c].push(myRole === "host" ? "y" : "r");
-      else if (p === "g") local[c].push(myRole === "guest" ? "y" : "r");
-    }
-  }
-  return local;
-}
-
-function updateWaitingOverlay() {
-  var el = document.getElementById("gameWaiting");
-  if (!el) return;
-  if (game.waiting && game.myRole === "host") {
-    el.removeAttribute("hidden");
-  } else {
-    el.setAttribute("hidden", "");
-  }
-}
-
-function updateOutcomeFromServer(lobby) {
-  if (lobby.status !== "finished") return;
-  stopGameClock();
-  game.matchFinished = true;
-  game.matchActive = false;
-  setInMatchUi(false);
-
-  var banner = document.getElementById("gameTurnBanner");
-  var label = document.getElementById("gameTurnLabel");
-  var myId = game.myTelegramId;
-  var iWon = lobby.winnerId && String(lobby.winnerId) === String(myId);
-  var isDraw = lobby.winReason === "draw";
-
-  if (banner) {
-    banner.classList.remove(
-      "game-turn--compact",
-      "game-turn--outcome-loss",
-      "game-turn--outcome-win",
-      "game-turn--outcome-draw",
-      "game-turn--disk-yellow",
-      "game-turn--disk-red"
-    );
-    banner.classList.add("game-turn--compact");
-    if (isDraw) banner.classList.add("game-turn--outcome-draw");
-    else banner.classList.add(iWon ? "game-turn--outcome-win" : "game-turn--outcome-loss");
-  }
-
-  if (label) {
-    if (isDraw) label.textContent = "Нічия";
-    else if (lobby.winReason === "forfeit") {
-      label.textContent = iWon ? "Суперник вийшов — твоя перемога" : "Ти вийшов — поразка";
-    } else if (lobby.winReason === "timeout") {
-      label.textContent = iWon ? "Час вийшов у суперника" : "Час вийшов — ти програв";
-    } else {
-      label.textContent = iWon ? "Твоя перемога — чотири в ряд!" : "Суперник зібрав чотири в ряд!";
-    }
-  }
-  setPostMatchLobbyCtaVisible(true);
-}
-
-export function resetLocalMatch() {
-  removeAllDropOverlays();
-  stopGameClock();
-  resetGameGrid();
-  game.currentPlayer = "y";
-  game.matchActive = false;
-  game.matchFinished = false;
-  game.waiting = false;
-  game.lobbyId = null;
-  game.myRole = null;
-  game.shareUrl = null;
-  game.status = null;
-  game.opponent = null;
-  setInMatchUi(false);
-  setPostMatchLobbyCtaVisible(false);
-  updateWaitingOverlay();
-  renderGameBoardDOM();
-  updateGameTurnUI();
-  updateClockDisplay();
-}
-
-export function enterWaitingLobby(lobby, options) {
-  options = options || {};
+  connectFour.updateGhostPreviewColumn(board, null);
+  if (isForfeitLeave()) showForfeitBanner();
   resetLocalMatch();
-  game.lobbyId = lobby.id;
-  game.myRole = lobby.myRole || "host";
-  game.myTelegramId =
-    lobby.myRole === "host"
-      ? String(lobby.host && lobby.host.telegramId)
-      : String(lobby.guest && lobby.guest.telegramId);
-  game.shareUrl = lobby.shareUrl;
-  game.status = lobby.status;
-  game.waiting = true;
-  game.opponent = lobby.myRole === "host" ? lobby.guest : lobby.host;
-  game.humanChipColor = lobby.hostChipColor === "red" ? "red" : "yellow";
-  if (lobby.myRole === "guest") {
-    game.humanChipColor = lobby.hostChipColor === "red" ? "yellow" : "red";
-  }
-  resetClocksFromSettings({
-    secondsPerPlayer: lobby.secondsPerPlayer,
-    incrementSeconds: lobby.incrementSeconds,
-  });
-  syncChipVisuals();
-  var meta = document.getElementById("gameMatchMeta");
-  if (meta) meta.textContent = formatLobbyMeta(lobby);
-  var label = document.getElementById("gameTurnLabel");
-  if (label) {
-    label.textContent = options.promotedToHost
-      ? "Ти тепер host — очікуємо суперника…"
-      : "Очікуємо суперника…";
-  }
-  updateWaitingOverlay();
-  setInMatchUi(true);
-  renderGameBoardDOM();
-  updateClockDisplay();
 }
 
-export function applyServerLobby(lobby, options) {
-  options = options || {};
-  if (!lobby) return;
+function handleConnectFourMove(column) {
+  if (game.grid[column].length >= GAME_ROWS || !game.lobbyId) return;
+  var prev = connectFour.cloneGrid(game.grid);
+  game.grid[column].push("y");
+  connectFour.applyPatch(prev);
+  markOptimisticMove();
 
-  game.lobbyId = lobby.id;
-  game.myRole = lobby.myRole;
-  game.myTelegramId =
-    lobby.myRole === "host"
-      ? String(lobby.host && lobby.host.telegramId)
-      : String(lobby.guest && lobby.guest.telegramId);
-  game.shareUrl = lobby.shareUrl;
-  game.status = lobby.status;
-  game.waiting = lobby.status === "waiting";
-  game.opponent = lobby.myRole === "host" ? lobby.guest : lobby.host;
-
-  if (lobby.myRole === "host") {
-    game.humanChipColor = lobby.hostChipColor === "red" ? "red" : "yellow";
-  } else {
-    game.humanChipColor = lobby.hostChipColor === "red" ? "yellow" : "red";
-  }
-
-  game.grid = serverGridToLocal(lobby.grid, lobby.myRole);
-  game.incSec = lobby.incrementSeconds || 0;
-
-  if (lobby.myRole === "host") {
-    game.clockYellowSec = lobby.hostClock;
-    game.clockRedSec = lobby.guestClock;
-  } else {
-    game.clockYellowSec = lobby.guestClock;
-    game.clockRedSec = lobby.hostClock;
-  }
-
-  var meta = document.getElementById("gameMatchMeta");
-  if (meta) meta.textContent = formatLobbyMeta(lobby);
-
-  if (lobby.status === "waiting") {
-    enterWaitingLobby(lobby, options);
-    return;
-  }
-
-  game.waiting = false;
-  updateWaitingOverlay();
-  game.matchActive = lobby.status === "playing";
-  game.matchFinished = lobby.status === "finished";
-
-  if (lobby.currentTurnId && game.myTelegramId) {
-    game.currentPlayer = String(lobby.currentTurnId) === String(game.myTelegramId) ? "y" : "r";
-  }
-
-  syncChipVisuals();
-  renderGameBoardDOM();
-  updateGameTurnUI();
-  updateClockDisplay();
-
-  stopGameClock();
-  if (game.matchActive && !game.matchFinished) startGameClock();
-  if (game.matchFinished) updateOutcomeFromServer(lobby);
-  if (game.matchActive) setInMatchUi(true);
+  submitMove(game.lobbyId, column)
+    .then(function (result) {
+      if (!result) {
+        syncLobby(game.lobbyId)
+          .then(function (lobby) {
+            if (lobby) notifyLobbyState(lobby);
+          })
+          .catch(function () {});
+        return;
+      }
+      if (result.viaWs) return;
+      if (result.lobby) notifyLobbyState(result.lobby);
+    })
+    .catch(function (err) {
+      console.warn("[move]", err.message || err);
+      syncLobby(game.lobbyId)
+        .then(function (lobby) {
+          if (lobby) notifyLobbyState(lobby);
+        })
+        .catch(function () {});
+    });
 }
 
 export function bindGameBoardInteractions() {
-  var board = document.getElementById("gameBoard");
-  if (!board || board.dataset.bound === "1") return;
-  board.dataset.bound = "1";
-
-  board.addEventListener("mousemove", function (ev) {
-    if (board.getAttribute("data-drop-active") === "1") return;
-    var colBtn = ev.target.closest(".game-board__col");
-    updateGhostPreviewColumn(board, colBtn);
-  });
-
-  board.addEventListener("mouseleave", function () {
-    updateGhostPreviewColumn(board, null);
-  });
-
-  board.addEventListener("click", function (ev) {
-    var colBtn = ev.target.closest(".game-board__col");
-    if (!colBtn || !isHumanTurn() || !game.matchActive || game.matchFinished || game.waiting) return;
-    if (board.getAttribute("data-drop-active") === "1") return;
-    var c = parseInt(colBtn.getAttribute("data-col"), 10);
-    if (Number.isNaN(c) || game.grid[c].length >= GAME_ROWS || !game.lobbyId) return;
-
-    submitMove(game.lobbyId, c)
-      .then(function (lobby) {
-        if (lobby) notifyLobbyState(lobby);
-      })
-      .catch(function (err) {
-        console.warn("[move]", err.message || err);
-        requestServerClockSync();
-      });
+  boardRuntime.bindBoardInteractions({
+    onConnectFourMove: handleConnectFourMove,
   });
 }
 
-export function openGameFromNewLobby(_settings) {
-  console.warn("[ConnectFour] openGameFromNewLobby is deprecated — use lobby-session");
+export function refreshGameTexts() {
+  refreshMatchMeta(null);
+
+  var forfeitBanner = document.getElementById("gameForfeitBanner");
+  if (forfeitBanner) forfeitBanner.textContent = t("game.forfeitBanner");
+
+  if (game.lastTurnLabelKey) {
+    setTurnLabelKey(game.lastTurnLabelKey);
+  } else if (game.matchActive && !game.matchFinished) {
+    updateGameTurnUI();
+  }
+
+  if (game.waiting) refreshPregameTexts();
+  updateGamePresentation(game.gameType);
+  boardRuntime.renderBoard(game.gameType);
 }
+
 export function primeGamePresentation() {
-  resetGameGrid();
+  connectFour.resetGrid();
   resetClocksFromSettings(null);
-  renderGameBoardDOM();
+  boardRuntime.renderBoard(game.gameType);
   updateGameTurnUI();
   updateClockDisplay();
   syncChipVisuals();
   bindGameBoardInteractions();
+  bindPregameLobby();
 }

@@ -1,4 +1,5 @@
 import { isLobbySocketOpen, sendMove } from "./ws.js";
+import { nextSyncEpoch, isSyncEpochCurrent } from "../game/sync-epoch.js";
 
 /** @type {string} */
 export var telegramInitData = "";
@@ -79,28 +80,38 @@ export async function fetchLobby(lobbyId) {
 }
 
 export async function syncLobby(lobbyId) {
+  var epoch = nextSyncEpoch();
   const res = await fetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/sync", {
     method: "POST",
     headers: authHeaders(),
   });
+  if (!isSyncEpochCurrent(epoch)) return null;
   if (!res.ok) await parseError(res);
   const data = await res.json();
+  if (!isSyncEpochCurrent(epoch)) return null;
   return data.lobby;
 }
 
-export async function submitMove(lobbyId, column) {
-  if (isLobbySocketOpen() && sendMove(column)) {
-    return null;
+export async function submitMove(lobbyId, move) {
+  var payload =
+    typeof move === "number"
+      ? { column: move }
+      : move && typeof move === "object"
+        ? move
+        : {};
+
+  if (isLobbySocketOpen() && sendMove(payload)) {
+    return { viaWs: true };
   }
 
   const res = await fetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/move", {
     method: "POST",
     headers: authHeaders(),
-    body: JSON.stringify({ column }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) await parseError(res);
   const data = await res.json();
-  return data.lobby;
+  return { lobby: data.lobby };
 }
 
 export async function fetchActiveLobby() {
@@ -108,6 +119,31 @@ export async function fetchActiveLobby() {
   if (!res.ok) return null;
   const data = await res.json();
   return data.lobby || null;
+}
+
+export async function fetchSpectatingLobby() {
+  const res = await fetch("/api/lobbies/mine/spectating", { headers: authHeaders() });
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.lobby || null;
+}
+
+export async function spectateLobby(lobbyId) {
+  const res = await fetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/spectate", {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) await parseError(res);
+  const data = await res.json();
+  return data.lobby;
+}
+
+export async function leaveSpectatorLobby(lobbyId) {
+  const res = await fetch(
+    "/api/lobbies/" + encodeURIComponent(lobbyId) + "/leave-spectator",
+    { method: "POST", headers: authHeaders() }
+  );
+  if (!res.ok) await parseError(res);
 }
 
 export async function fetchLobbies() {
@@ -126,6 +162,7 @@ export async function createLobby(settings, replaceExisting) {
       hostChipColor: settings.playerChipColor,
       secondsPerPlayer: parseInt(settings.secondsPerPlayer, 10),
       incrementSeconds: parseInt(settings.incrementSeconds, 10),
+      gameType: settings.gameType,
       replaceExisting: !!replaceExisting,
     }),
   });
@@ -148,6 +185,27 @@ export async function joinLobby(lobbyId, replaceExisting) {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({ replaceExisting: !!replaceExisting }),
+  });
+  if (!res.ok) await parseError(res);
+  const data = await res.json();
+  return data.lobby;
+}
+
+export async function setLobbyReady(lobbyId, ready) {
+  const res = await fetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/ready", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ ready: !!ready }),
+  });
+  if (!res.ok) await parseError(res);
+  const data = await res.json();
+  return data.lobby;
+}
+
+export async function kickLobbyGuest(lobbyId) {
+  const res = await fetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/kick-guest", {
+    method: "POST",
+    headers: authHeaders(),
   });
   if (!res.ok) await parseError(res);
   const data = await res.json();

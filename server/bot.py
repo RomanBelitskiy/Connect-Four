@@ -11,6 +11,7 @@ from telegram import (
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from server.config import settings
+from server.games.registry import game_share_label, resolve_game_type
 from server.share_links import build_main_mini_app_link, set_bot_username
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,10 @@ def _play_markup(invite_code: str | None = None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[_play_inline_button(invite_code)]])
 
 
+def _invite_message(game_type: str | None) -> str:
+    return f"{game_share_label(game_type)} — приєднуйся до моєї партії!"
+
+
 async def start_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
@@ -39,15 +44,22 @@ async def start_command(update, context: ContextTypes.DEFAULT_TYPE) -> None:
         payload = context.args[0]
         invite_code = payload[4:].lstrip("_") if payload.startswith("join") else payload
         if invite_code:
+            from server.lobby_store import get_lobby_by_invite_code
+
+            lobby = get_lobby_by_invite_code(invite_code)
+            game_type = resolve_game_type(
+                lobby.get("game_type") if lobby else None,
+                lobby.get("grid") if lobby else None,
+            )
             await update.message.reply_text(
-                "Connect Four — приєднуйся до партії!",
+                _invite_message(game_type),
                 reply_markup=_play_markup(invite_code),
             )
             return
 
     await update.message.reply_text(
-        "Connect Four — грай у чотири в ряд онлайн!\n\n"
-        "Натисни кнопку нижче, щоб відкрити гру.",
+        "Mini Games — грай онлайн!\n\n"
+        "Натисни кнопку нижче, щоб відкрити застосунок.",
         reply_markup=_play_markup(),
     )
 
@@ -103,19 +115,26 @@ async def fetch_user_photo_url(telegram_id: int) -> str | None:
         return None
 
 
-async def prepare_lobby_share(user_id: int, share_url: str, invite_code: str) -> str | None:
+async def prepare_lobby_share(
+    user_id: int,
+    share_url: str,
+    invite_code: str,
+    game_type: str | None = None,
+) -> str | None:
     """Mini Apps 2.0 — prepared message для shareMessage (вибір контактів)."""
     application = get_bot_application()
     if not application:
         return None
 
+    label = game_share_label(game_type)
+
     try:
         result = InlineQueryResultArticle(
             id=f"lobby_{invite_code}"[:64],
-            title="Connect Four — грати разом",
+            title=f"{label} — грати разом",
             description="Запроси друга в партію",
             input_message_content=InputTextMessageContent(
-                message_text=f"Connect Four — приєднуйся до моєї партії!\n{share_url}",
+                message_text=_invite_message(game_type),
             ),
             reply_markup=_play_markup(invite_code),
         )

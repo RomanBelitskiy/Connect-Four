@@ -1,6 +1,8 @@
 import { prepareLobbyShare } from "../api/client.js";
 import { getActiveLobby, getShareUrl } from "../game/lobby-session.js";
 import { shareLobbyInvite, sharePreparedMessage } from "../app/telegram.js";
+import { gameLabelKey } from "../games/index.js";
+import { t } from "../i18n/index.js";
 
 export function bindShareButtons() {
   var shareBtn = document.getElementById("btnShareLobby");
@@ -22,6 +24,6 @@ export function bindShareButtons() {
       /* fallback нижче */
     }
 
-    shareLobbyInvite(url);
+    shareLobbyInvite(url, t("share.inviteText", { game: t(gameLabelKey(lobby.gameType)) }));
   });
 }

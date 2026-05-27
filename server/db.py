@@ -8,6 +8,7 @@ from psycopg2.extras import RealDictCursor
 
 from server.config import settings
 from server.avatars import public_avatar_url
+from server.rating import DEFAULT_RATING
 
 
 def get_connection():
@@ -28,7 +29,7 @@ def init_db() -> None:
                     photo_url TEXT,
                     games_played INT NOT NULL DEFAULT 0,
                     games_won INT NOT NULL DEFAULT 0,
-                    rating INT NOT NULL DEFAULT 1500,
+                    rating INT NOT NULL DEFAULT 100,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 )
@@ -39,6 +40,53 @@ def init_db() -> None:
                 CREATE INDEX IF NOT EXISTS idx_users_rating
                 ON users (rating DESC)
                 """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS app_migrations (
+                    name VARCHAR(255) PRIMARY KEY,
+                    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute(
+                "SELECT 1 FROM app_migrations WHERE name = %s",
+                ("rating_v2_reset",),
+            )
+            if not cur.fetchone():
+                cur.execute("UPDATE users SET rating = %s", (DEFAULT_RATING,))
+                cur.execute(
+                    "ALTER TABLE users ALTER COLUMN rating SET DEFAULT %s",
+                    (DEFAULT_RATING,),
+                )
+                cur.execute(
+                    "INSERT INTO app_migrations (name) VALUES (%s)",
+                    ("rating_v2_reset",),
+                )
+        conn.commit()
+
+
+def apply_pending_migrations() -> None:
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "ALTER TABLE lobbies ADD COLUMN IF NOT EXISTS game_type VARCHAR(32) NOT NULL DEFAULT 'connect_four'"
+            )
+            cur.execute(
+                "SELECT 1 FROM app_migrations WHERE name = %s",
+                ("stats_full_reset_v1",),
+            )
+            if cur.fetchone():
+                conn.commit()
+                return
+            cur.execute(
+                "UPDATE users SET rating = %s, games_played = 0, games_won = 0",
+                (DEFAULT_RATING,),
+            )
+            cur.execute("DELETE FROM match_history")
+            cur.execute(
+                "INSERT INTO app_migrations (name) VALUES (%s)",
+                ("stats_full_reset_v1",),
             )
         conn.commit()
 
@@ -105,7 +153,7 @@ def format_user(row: dict[str, Any] | None) -> dict[str, Any] | None:
         "gamesPlayed": games_played,
         "gamesWon": games_won,
         "winrate": winrate,
-        "rating": row.get("rating") or 1500,
+        "rating": row.get("rating") if row.get("rating") is not None else DEFAULT_RATING,
         "createdAt": iso(row.get("created_at")),
         "updatedAt": iso(row.get("updated_at")),
     }

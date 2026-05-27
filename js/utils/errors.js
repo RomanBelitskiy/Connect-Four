@@ -1,13 +1,19 @@
-var USER_ERRORS = {
-  active_lobby_exists: "У тебе вже є активне лобі.",
-  "Lobby is not available": "Кімната вже не доступна",
-  "Lobby is full": "Кімната вже зайнята",
-  "Cannot join your own lobby": "Не можна приєднатись до власного лобі",
-  "Lobby not found": "Кімнату не знайдено",
+import { t } from "../i18n/index.js";
+
+var USER_ERROR_KEYS = {
+  active_lobby_exists: "error.activeLobby",
+  "Lobby is not available": "error.lobbyUnavailable",
+  "Lobby is full": "error.lobbyFull",
+  "Cannot join your own lobby": "error.ownLobby",
+  "Lobby not found": "error.lobbyNotFound",
+  "Кімната вже не доступна": "error.lobbyUnavailable",
+  "Кімната вже зайнята або завершена": "error.lobbyFull",
 };
 
 export function userErrorMessage(err) {
-  if (!err) return "Щось пішло не так";
+  if (!err) return t("error.generic");
   var msg = err.message || String(err);
-  return USER_ERRORS[msg] || msg;
+  var key = USER_ERROR_KEYS[msg];
+  if (key) return t(key);
+  return msg;
 }

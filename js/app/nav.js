@@ -1,7 +1,30 @@
 import { maybeForfeitActiveMatch } from "../game/match-board.js";
+import { clearActiveGameTab } from "./game-tab-hint.js";
+import { refreshLobbies } from "./shell.js";
 import { setTelegramBackVisible } from "./telegram.js";
 
+export function getActiveTab() {
+  var active = document.querySelector(".view.view--active[data-view]");
+  return active ? active.getAttribute("data-view") : null;
+}
+
+export function ensureGameTab() {
+  switchTab("game");
+}
+
+export function ensureLobbyTab() {
+  clearActiveGameTab();
+  switchTab("lobby");
+}
+
 export function switchTab(tab) {
+  var current = getActiveTab();
+  if (current === tab) {
+    if (tab === "lobby") refreshLobbies();
+    setTelegramBackVisible(tab === "game");
+    return;
+  }
+
   var gameEl = document.getElementById("view-game");
   var gameVisible = gameEl && !gameEl.hasAttribute("hidden");
 
@@ -32,4 +55,8 @@ export function switchTab(tab) {
   });
 
   setTelegramBackVisible(tab === "game");
+
+  if (tab === "lobby") {
+    refreshLobbies();
+  }
 }

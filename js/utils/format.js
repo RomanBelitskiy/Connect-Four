@@ -1,3 +1,5 @@
+import { formatLobbyMetaLocal } from "../i18n/index.js";
+
 export function initialFrom(text) {
   var s = (text || "").trim();
   if (!s) return "?";
@@ -13,17 +15,5 @@ export function formatClock(seconds) {
   return m + ":" + (r < 10 ? "0" : "") + r;
 }
 export function formatLobbyMeta(settings) {
-  if (!settings) return "—";
-  if (settings.timeLabel) return settings.timeLabel;
-  if (settings.secondsPerPlayer == null) return "—";
-  var sec = parseInt(String(settings.secondsPerPlayer), 10);
-  if (Number.isNaN(sec)) return "—";
-  var allowedBase = [15, 30, 60, 120, 180];
-  if (allowedBase.indexOf(sec) === -1) return "—";
-  var inc = settings.incrementSeconds != null ? settings.incrementSeconds : "0";
-  var ctl =
-    sec < 60
-      ? sec + " сек"
-      : Math.floor(sec / 60) + " хв";
-  return ctl + " · +" + inc + " с";
+  return formatLobbyMetaLocal(settings);
 }

@@ -64,6 +64,12 @@ function openSocket(lobbyId) {
       var data = JSON.parse(ev.data);
       if (data.type === "state" && data.lobby && onState) {
         onState(data.lobby);
+        return;
+      }
+      if (data.type === "error" && data.message) {
+        window.dispatchEvent(
+          new CustomEvent("lobby-ws-error", { detail: { message: data.message } })
+        );
       }
     } catch (_e) {
       /* ignore */
@@ -115,15 +121,30 @@ export function isLobbySocketOpen() {
   return !!(socket && socket.readyState === WebSocket.OPEN);
 }
 
-export function sendMove(column) {
+export function sendMove(move) {
   if (!socket || socket.readyState !== WebSocket.OPEN) return false;
-  socket.send(JSON.stringify({ type: "move", column: column }));
+  var payload = { type: "move" };
+  if (typeof move === "number") {
+    payload.column = move;
+  } else if (move && typeof move === "object") {
+    if (move.column != null) payload.column = move.column;
+    if (move.cell != null) payload.cell = move.cell;
+  } else {
+    return false;
+  }
+  socket.send(JSON.stringify(payload));
   return true;
 }
 
 export function sendForfeit() {
   if (!socket || socket.readyState !== WebSocket.OPEN) return false;
   socket.send(JSON.stringify({ type: "forfeit" }));
+  return true;
+}
+
+export function sendReady(ready) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+  socket.send(JSON.stringify({ type: "ready", ready: !!ready }));
   return true;
 }
 

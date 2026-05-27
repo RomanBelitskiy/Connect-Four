@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
+from server.games.registry import normalize_game_type, resolve_game_type
 
 from server.auth import build_display_name, parse_init_data_user, validate_init_data
 from server.avatars import avatar_file_path, public_avatar_url, sync_user_avatar
@@ -20,9 +21,17 @@ from server.lobby_store import (
     get_lobby_by_id,
     get_lobby_by_invite_code,
     get_match_history,
+    enter_lobby_spectator,
     join_lobby,
+    kick_lobby_guest,
+    leave_lobby_spectator,
     list_open_lobbies,
+    get_spectating_lobby_for_user,
+    user_can_view_lobby,
+    _is_spectator,
     pause_clock_on_reconnect,
+    process_pregame_lobby,
+    set_lobby_ready,
     sync_playing_lobby,
 )
 from server.ws_manager import ws_manager
@@ -39,15 +48,31 @@ class CreateLobbyRequest(BaseModel):
     hostChipColor: str = "yellow"
     secondsPerPlayer: int = Field(default=60, ge=15, le=180)
     incrementSeconds: int = Field(default=1, ge=0, le=5)
+    gameType: str = Field(
+        default="connect_four",
+        validation_alias=AliasChoices("gameType", "game_type"),
+    )
     replaceExisting: bool = False
 
 
 class MoveRequest(BaseModel):
-    column: int = Field(..., ge=0, le=6)
+    column: int | None = Field(None, ge=0, le=6)
+    cell: int | None = Field(None, ge=0, le=8)
+
+    def as_move(self) -> dict:
+        if self.cell is not None:
+            return {"cell": self.cell}
+        if self.column is not None:
+            return {"column": self.column}
+        raise ValueError("Move required")
 
 
 class JoinLobbyRequest(BaseModel):
     replaceExisting: bool = False
+
+
+class ReadyRequest(BaseModel):
+    ready: bool = True
 
 
 @router.get("/health")
@@ -122,6 +147,15 @@ def api_my_active_lobby(user=Depends(require_user)):
     return {"lobby": format_lobby(row, viewer_id=uid)}
 
 
+@router.get("/lobbies/mine/spectating")
+def api_my_spectating_lobby(user=Depends(require_user)):
+    uid = int(user["telegram_id"])
+    row = get_spectating_lobby_for_user(uid)
+    if not row:
+        return {"lobby": None}
+    return {"lobby": format_lobby(row, viewer_id=uid)}
+
+
 @router.post("/lobbies")
 async def api_create_lobby(body: CreateLobbyRequest, user=Depends(require_user)):
     uid = int(user["telegram_id"])
@@ -135,6 +169,7 @@ async def api_create_lobby(body: CreateLobbyRequest, user=Depends(require_user))
         old_id = abandon_lobby_for_replace(uid)
         if old_id:
             await ws_manager.broadcast_lobby(old_id)
+            await ws_manager.broadcast_lobby_feed()
 
     row = create_lobby(
         host_id=uid,
@@ -142,7 +177,10 @@ async def api_create_lobby(body: CreateLobbyRequest, user=Depends(require_user))
         host_chip_color=body.hostChipColor,
         seconds_per_player=body.secondsPerPlayer,
         increment_seconds=body.incrementSeconds,
+        game_type=normalize_game_type(body.gameType),
     )
+    if row.get("visibility") == "open":
+        await ws_manager.broadcast_lobby_feed()
     return {"lobby": format_lobby(row, viewer_id=uid)}
 
 
@@ -152,6 +190,27 @@ def api_get_lobby_by_code(invite_code: str, user=Depends(require_user)):
     if not row:
         raise HTTPException(status_code=404, detail="Lobby not found")
     return {"lobby": format_lobby(row, viewer_id=int(user["telegram_id"]))}
+
+
+@router.post("/lobbies/{lobby_id}/spectate")
+async def api_spectate_lobby(lobby_id: str, user=Depends(require_user)):
+    uid = int(user["telegram_id"])
+    try:
+        row = enter_lobby_spectator(lobby_id, uid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await ws_manager.broadcast_lobby(lobby_id)
+    await ws_manager.broadcast_lobby_feed()
+    return {"lobby": format_lobby(row, viewer_id=uid)}
+
+
+@router.post("/lobbies/{lobby_id}/leave-spectator")
+async def api_leave_spectator(lobby_id: str, user=Depends(require_user)):
+    uid = int(user["telegram_id"])
+    leave_lobby_spectator(lobby_id, uid)
+    await ws_manager.broadcast_lobby(lobby_id)
+    await ws_manager.broadcast_lobby_feed()
+    return {"ok": True}
 
 
 @router.post("/lobbies/{lobby_id}/join")
@@ -177,6 +236,7 @@ async def api_join_lobby(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await ws_manager.broadcast_lobby(lobby_id)
+    await ws_manager.broadcast_lobby_feed()
     return {"lobby": format_lobby(row, viewer_id=uid)}
 
 
@@ -186,9 +246,8 @@ def api_get_lobby(lobby_id: str, user=Depends(require_user)):
     if not row:
         raise HTTPException(status_code=404, detail="Lobby not found")
     uid = int(user["telegram_id"])
-    if uid not in (int(row["host_id"]), int(row.get("guest_id") or 0)):
-        if row["visibility"] != "open" or row["status"] != "waiting":
-            raise HTTPException(status_code=403, detail="Access denied")
+    if not user_can_view_lobby(row, uid):
+        raise HTTPException(status_code=403, detail="Access denied")
     return {"lobby": format_lobby(row, viewer_id=uid)}
 
 
@@ -204,19 +263,46 @@ async def api_prepare_share(lobby_id: str, user=Depends(require_user)):
         raise HTTPException(status_code=400, detail="Lobby is not waiting")
 
     lobby = format_lobby(row, viewer_id=uid)
-    message_id = await prepare_lobby_share(uid, lobby["shareUrl"], row["invite_code"])
+    game_type = resolve_game_type(row.get("game_type"), row.get("grid"))
+    message_id = await prepare_lobby_share(uid, lobby["shareUrl"], row["invite_code"], game_type)
     if not message_id:
         raise HTTPException(status_code=503, detail="Share not available")
     return {"messageId": message_id}
 
 
-@router.post("/lobbies/{lobby_id}/move")
-async def api_move(lobby_id: str, body: MoveRequest, user=Depends(require_user)):
+@router.post("/lobbies/{lobby_id}/ready")
+async def api_set_ready(lobby_id: str, body: ReadyRequest, user=Depends(require_user)):
+    uid = int(user["telegram_id"])
     try:
-        row = apply_lobby_move(lobby_id, int(user["telegram_id"]), body.column)
+        row = set_lobby_ready(lobby_id, uid, body.ready)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await ws_manager.broadcast_lobby(lobby_id)
+    return {"lobby": format_lobby(row, viewer_id=uid)}
+
+
+@router.post("/lobbies/{lobby_id}/kick-guest")
+async def api_kick_guest(lobby_id: str, user=Depends(require_user)):
+    uid = int(user["telegram_id"])
+    try:
+        row = kick_lobby_guest(lobby_id, uid)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await ws_manager.broadcast_lobby(lobby_id)
+    return {"lobby": format_lobby(row, viewer_id=uid)}
+
+
+@router.post("/lobbies/{lobby_id}/move")
+async def api_move(lobby_id: str, body: MoveRequest, user=Depends(require_user)):
+    try:
+        move = body.as_move()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        row = apply_lobby_move(lobby_id, int(user["telegram_id"]), move)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await ws_manager.broadcast_lobby(lobby_id, lobby=row, move_update=True)
     return {"lobby": format_lobby(row, viewer_id=int(user["telegram_id"]))}
 
 
@@ -227,11 +313,17 @@ async def api_sync_lobby(lobby_id: str, user=Depends(require_user)):
         raise HTTPException(status_code=404, detail="Lobby not found")
     uid = int(user["telegram_id"])
     if uid not in (int(row["host_id"]), int(row.get("guest_id") or 0)):
-        raise HTTPException(status_code=403, detail="Access denied")
+        if not user_can_view_lobby(row, uid):
+            raise HTTPException(status_code=403, detail="Access denied")
+        row = get_lobby_by_id(lobby_id)
+        return {"lobby": format_lobby(row, viewer_id=uid)}
 
     row = sync_playing_lobby(lobby_id, reset_tick_anchor=False)
-    await ws_manager.broadcast_lobby(lobby_id)
-    return {"lobby": format_lobby(row, viewer_id=uid)}
+    if row.get("status") == "waiting":
+        row = process_pregame_lobby(lobby_id) or row
+    fresh = get_lobby_by_id(lobby_id) or row
+    await ws_manager.broadcast_lobby(lobby_id, lobby=fresh)
+    return {"lobby": format_lobby(fresh, viewer_id=uid)}
 
 
 @router.post("/lobbies/{lobby_id}/forfeit")
@@ -293,7 +385,7 @@ async def websocket_lobby(websocket: WebSocket, lobby_id: str, initData: str = Q
     allowed = user_id in (
         int(lobby["host_id"]),
         int(lobby["guest_id"]) if lobby.get("guest_id") else -1,
-    )
+    ) or _is_spectator(lobby_id, user_id)
     if not allowed:
         await websocket.close(code=4403)
         return
@@ -314,3 +406,28 @@ async def websocket_lobby(websocket: WebSocket, lobby_id: str, initData: str = Q
         pass
     finally:
         await ws_manager.disconnect(lobby_id, user_id)
+
+
+@router.websocket("/ws/lobby-feed")
+async def websocket_lobby_feed(websocket: WebSocket, initData: str = Query(...)):
+    if not settings.is_bot_configured or not validate_init_data(initData, settings.bot_token):
+        await websocket.close(code=4401)
+        return
+
+    tg_user = parse_init_data_user(initData)
+    if not tg_user or not tg_user.get("id"):
+        await websocket.close(code=4401)
+        return
+
+    user_id = int(tg_user["id"])
+    await ws_manager.connect_feed(user_id, websocket)
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if data.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await ws_manager.disconnect_feed(user_id)

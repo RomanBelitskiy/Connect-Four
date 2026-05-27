@@ -3,6 +3,16 @@ import { refreshLobbies } from "../app/shell.js";
 import { fetchActiveLobby } from "../api/client.js";
 import { confirmReplaceLobby } from "./replace-lobby-modal.js";
 import { userErrorMessage } from "../utils/errors.js";
+import { t, formatTimeOption, formatIncrementOption } from "../i18n/index.js";
+import { openPickGameModal, gameTitleForType, getPendingGameType } from "./pick-game-modal.js";
+import { DEFAULT_GAME_ID, getGameDef, normalizeGameId } from "../games/index.js";
+import { createTttMarkElement } from "../games/infinite-ttt-board.js";
+import {
+  bindFakeSelectsInModal,
+  closeAllFakeSelects,
+  closeOpenFakeSelectOnEscape,
+} from "./fake-select.js";
+import { closeModal, openModal } from "./modal-utils.js";
 
 async function createLobbyFlow(settings) {
   var existing = await fetchActiveLobby();
@@ -34,188 +44,131 @@ function getCreateLobbyModal() {
   return document.getElementById("createLobbyModal");
 }
 
-function clearFakeSelectListPosition(list) {
-  if (!list) return;
-  list.style.position = "";
-  list.style.top = "";
-  list.style.bottom = "";
-  list.style.left = "";
-  list.style.right = "";
-  list.style.width = "";
-  list.style.maxHeight = "";
-  list.style.overflowY = "";
-  list.style.zIndex = "";
-}
+function renderChipSegmentButton(btn, useMarks, colorValue) {
+  if (!btn) return;
+  btn.setAttribute("data-value", colorValue);
+  btn.innerHTML = "";
 
-function spacingTokenPx(token) {
-  var raw = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
-  var fs = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-  if (raw.endsWith("rem")) return parseFloat(raw) * fs || 4;
-  if (raw.endsWith("px")) return parseFloat(raw) || 4;
-  return parseFloat(raw) || 4;
-}
-
-function getViewportHeight() {
-  return window.visualViewport ? window.visualViewport.height : window.innerHeight;
-}
-
-function getFakeSelectList(wrap) {
-  return wrap._portaledList || wrap.querySelector(".fake-select__list");
-}
-
-function fakeSelectContains(wrap, target) {
-  if (!wrap || !target) return false;
-  if (wrap.contains(target)) return true;
-  var list = wrap._portaledList;
-  return !!(list && list.contains(target));
-}
-
-function portalFakeSelectList(wrap, list) {
-  var modal = wrap.closest(".modal");
-  if (!modal || wrap._portaledList) return;
-  wrap._portaledList = list;
-  wrap._portaledListParent = list.parentElement;
-  wrap._portaledListNext = list.nextSibling;
-  list.classList.add("fake-select__list--portaled");
-  modal.appendChild(list);
-}
-
-function restoreFakeSelectList(wrap) {
-  var list = wrap._portaledList;
-  if (!list || !wrap._portaledListParent) return;
-  list.classList.remove("fake-select__list--portaled");
-  wrap._portaledListParent.insertBefore(list, wrap._portaledListNext || null);
-  delete wrap._portaledList;
-  delete wrap._portaledListParent;
-  delete wrap._portaledListNext;
-}
-
-function getFakeSelectBounds(wrap) {
-  var viewportH = getViewportHeight();
-  var pad = spacingTokenPx("--spacing-sm");
-  var gap = spacingTokenPx("--spacing-xs");
-  var modal = wrap.closest(".modal");
-  var footer = modal && modal.querySelector(".modal__footer");
-  var header = modal && modal.querySelector(".modal__header");
-
-  var minTop = pad;
-  var maxBottom = viewportH - pad;
-
-  if (header) {
-    minTop = Math.max(minTop, header.getBoundingClientRect().bottom + gap);
-  }
-  if (footer) {
-    maxBottom = Math.min(maxBottom, footer.getBoundingClientRect().top - gap);
+  if (useMarks) {
+    var mark = colorValue === "yellow" ? "X" : "O";
+    btn.setAttribute("aria-label", t(mark === "X" ? "create.chipX" : "create.chipO"));
+    btn.appendChild(createTttMarkElement(mark, { extraClass: "create-lobby-chip__mark" }));
+    return;
   }
 
-  return { minTop, maxBottom, gap, pad };
+  btn.setAttribute("aria-label", t(colorValue === "red" ? "create.chipRed" : "create.chipYellow"));
+  var disc = document.createElement("span");
+  disc.className =
+    "create-lobby-chip__disc create-lobby-chip__disc--" + (colorValue === "red" ? "red" : "yellow");
+  disc.setAttribute("aria-hidden", "true");
+  btn.appendChild(disc);
 }
 
-function positionFakeSelectList(wrap) {
-  var trigger = wrap.querySelector(".fake-select__trigger");
-  var list = getFakeSelectList(wrap);
-  if (!trigger || !list || list.hidden || !wrap.classList.contains("is-open")) return;
-
-  var bounds = getFakeSelectBounds(wrap);
-  var gap = bounds.gap;
-  var rect = trigger.getBoundingClientRect();
-
-  list.style.position = "fixed";
-  list.style.left = rect.left + "px";
-  list.style.width = rect.width + "px";
-  list.style.right = "auto";
-  list.style.zIndex = "50";
-  list.style.maxHeight = "none";
-  list.style.overflowY = "visible";
-
-  var naturalHeight = list.scrollHeight;
-  var spaceBelow = bounds.maxBottom - rect.bottom - gap;
-  var spaceAbove = rect.top - bounds.minTop - gap;
-  var flipUp = false;
-
-  if (naturalHeight <= spaceBelow) {
-    flipUp = false;
-  } else if (naturalHeight <= spaceAbove) {
-    flipUp = true;
-  } else {
-    flipUp = spaceAbove >= spaceBelow;
-  }
-
-  var modalBody = wrap.closest(".modal__body--game");
-  if (modalBody && !flipUp && naturalHeight > spaceBelow) {
-    modalBody.scrollTop += naturalHeight - spaceBelow;
-    rect = trigger.getBoundingClientRect();
-    bounds = getFakeSelectBounds(wrap);
-    spaceBelow = bounds.maxBottom - rect.bottom - gap;
-    spaceAbove = rect.top - bounds.minTop - gap;
-
-    if (naturalHeight <= spaceBelow) {
-      flipUp = false;
-    } else if (naturalHeight <= spaceAbove) {
-      flipUp = true;
-    } else {
-      flipUp = spaceAbove >= spaceBelow;
-    }
-  }
-
-  var available = flipUp ? spaceAbove : spaceBelow;
-  var viewportH = getViewportHeight();
-
-  if (flipUp) {
-    list.style.top = "auto";
-    list.style.bottom = viewportH - rect.top + gap + "px";
-  } else {
-    list.style.bottom = "auto";
-    list.style.top = rect.bottom + gap + "px";
-  }
-
-  if (naturalHeight > available) {
-    list.style.maxHeight = Math.max(0, available) + "px";
-    list.style.overflowY = "auto";
-  } else {
-    list.style.maxHeight = "none";
-    list.style.overflowY = "visible";
-  }
-}
-
-function repositionOpenLobbyFakeSelects() {
-  var modal = getCreateLobbyModal();
-  if (!modal || modal.hasAttribute("hidden")) return;
-  modal.querySelectorAll("[data-fake-select].is-open").forEach(positionFakeSelectList);
-}
-
-function closeFakeSelectWrap(wrap) {
-  wrap.classList.remove("is-open");
-  var list = getFakeSelectList(wrap);
-  var trig = wrap.querySelector(".fake-select__trigger");
-  if (list) list.hidden = true;
-  clearFakeSelectListPosition(list);
-  restoreFakeSelectList(wrap);
-  if (trig) trig.setAttribute("aria-expanded", "false");
-}
-
-function openCreateLobbyModal() {
+export function syncCreateLobbyChipPicker(gameType) {
   var modal = getCreateLobbyModal();
   if (!modal) return;
-  modal.removeAttribute("hidden");
-  var closeBtn = modal.querySelector(".modal__close-btn");
-  if (closeBtn) closeBtn.focus();
-  document.documentElement.style.overflow = "hidden";
+
+  var def = getGameDef(gameType);
+  var useMarks = def.chipMode === "marks";
+  var row = document.getElementById("createLobbyChipRow");
+  var seg = document.getElementById("createLobbyChipSegmented");
+  var title = document.getElementById("createLobbyChipTitle");
+  var subtitle = document.getElementById("createLobbyChipSubtitle");
+  var yellowBtn = document.getElementById("lobbyPlayerChipYellow");
+  var redBtn = document.getElementById("lobbyPlayerChipRed");
+
+  if (row) row.classList.toggle("modal-row--ttt-chip", useMarks);
+  if (seg) {
+    seg.classList.toggle("segmented--ttt-marks", useMarks);
+    seg.setAttribute("data-i18n-aria", useMarks ? "create.chipAriaTtt" : "create.chipAria");
+    seg.setAttribute("aria-label", t(useMarks ? "create.chipAriaTtt" : "create.chipAria"));
+  }
+  if (title) title.textContent = t(useMarks ? "create.chipTitleTtt" : "create.chipTitle");
+  if (subtitle) subtitle.textContent = t(useMarks ? "create.chipSubTtt" : "create.chipSub");
+
+  renderChipSegmentButton(yellowBtn, useMarks, "yellow");
+  renderChipSegmentButton(redBtn, useMarks, "red");
 }
+
+function openCreateLobbyModal(gameType) {
+  syncCreateLobbySelectLabels();
+  var modal = getCreateLobbyModal();
+  if (!modal) return;
+
+  var resolvedType = normalizeGameId(gameType || getPendingGameType());
+  var hidden = document.getElementById("lobbyGameType");
+  if (hidden) hidden.value = resolvedType;
+
+  var gameLabel = document.getElementById("createLobbyGameLabel");
+  if (gameLabel) gameLabel.textContent = gameTitleForType(resolvedType);
+
+  syncCreateLobbyChipPicker(resolvedType);
+  resetVisibilityToggle();
+
+  openModal(modal);
+}
+
+export { openCreateLobbyModal };
 
 function closeCreateLobbyModal() {
   var modal = getCreateLobbyModal();
   if (!modal) return;
-  modal.querySelectorAll("[data-fake-select].is-open").forEach(closeFakeSelectWrap);
-  modal.setAttribute("hidden", "");
-  document.documentElement.style.overflow = "";
+  closeAllFakeSelects(modal);
   var opener = document.getElementById("btnOpenCreateLobby");
-  if (opener) opener.focus();
+  closeModal(modal, opener);
+}
+
+function labelForTimeValue(value) {
+  return formatTimeOption(value);
+}
+
+function labelForIncValue(value) {
+  var n = parseInt(String(value), 10);
+  if (Number.isNaN(n) || n <= 0) return formatIncrementOption(0).replace("+", "");
+  return formatIncrementOption(n);
+}
+
+export function syncCreateLobbySelectLabels() {
+  var modal = getCreateLobbyModal();
+  if (!modal) return;
+
+  modal.querySelectorAll("[data-time-value]").forEach(function (el) {
+    var value = el.getAttribute("data-time-value");
+    if (value != null) el.textContent = labelForTimeValue(value);
+  });
+
+  modal.querySelectorAll("[data-inc-value]").forEach(function (el) {
+    var value = el.getAttribute("data-inc-value");
+    if (value != null) el.textContent = labelForIncValue(value);
+  });
+
+  var gameTypeEl = document.getElementById("lobbyGameType");
+  var gameType = (gameTypeEl && gameTypeEl.value) || getPendingGameType() || DEFAULT_GAME_ID;
+  syncCreateLobbyChipPicker(gameType);
+  syncVisibilityToggleUi();
+}
+
+function syncVisibilityToggleUi(btn) {
+  if (!btn) btn = document.getElementById("lobbyVisibilityToggle");
+  if (!btn) return;
+
+  var closed = btn.getAttribute("data-visibility") === "closed";
+  btn.classList.toggle("lobby-visibility-toggle--closed", closed);
+  btn.setAttribute("aria-pressed", closed ? "true" : "false");
+  btn.setAttribute("aria-label", t(closed ? "create.visibilityClosed" : "create.visibilityOpen"));
+}
+
+function resetVisibilityToggle() {
+  var btn = document.getElementById("lobbyVisibilityToggle");
+  if (!btn) return;
+  btn.setAttribute("data-visibility", "open");
+  syncVisibilityToggleUi(btn);
 }
 
 function getLobbyModalSettings() {
-  var activeVisBtn = document.querySelector('.segmented__btn[data-segment="visibility"].is-active');
-  var visibility = activeVisBtn && activeVisBtn.getAttribute("data-value") ? activeVisBtn.getAttribute("data-value") : "open";
+  var visBtn = document.getElementById("lobbyVisibilityToggle");
+  var visibility =
+    visBtn && visBtn.getAttribute("data-visibility") === "closed" ? "closed" : "open";
   var timeEl = document.getElementById("lobbyTimeSeconds");
   var incEl = document.getElementById("lobbyIncrementSeconds");
   var activePlayerChipBtn = document.querySelector('.segmented__btn[data-segment="player-chip"].is-active');
@@ -223,39 +176,43 @@ function getLobbyModalSettings() {
     activePlayerChipBtn && activePlayerChipBtn.getAttribute("data-value")
       ? activePlayerChipBtn.getAttribute("data-value")
       : "yellow";
+  var gameTypeEl = document.getElementById("lobbyGameType");
+  var resolvedGameType =
+    normalizeGameId((gameTypeEl && gameTypeEl.value) || getPendingGameType() || DEFAULT_GAME_ID);
   return {
     visibility: visibility,
     secondsPerPlayer: timeEl ? timeEl.value : "60",
     incrementSeconds: incEl ? incEl.value : "1",
     playerChipColor: playerChipChoice,
+    gameType: resolvedGameType,
   };
 }
 
 export function bindCreateLobbyModal() {
   var modal = getCreateLobbyModal();
-  var openBtn = document.getElementById("btnOpenCreateLobby");
-  if (openBtn) {
-    openBtn.addEventListener("click", openCreateLobbyModal);
-  }
   if (!modal) return;
+
+  var backBtn = document.getElementById("btnCreateLobbyBack");
+  if (backBtn) {
+    backBtn.addEventListener("click", function () {
+      closeCreateLobbyModal();
+      openPickGameModal();
+    });
+  }
 
   modal.querySelectorAll("[data-modal-close]").forEach(function (el) {
     el.addEventListener("click", closeCreateLobbyModal);
   });
 
-  modal.querySelectorAll('.segmented__btn[data-segment="visibility"]').forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      modal.querySelectorAll('.segmented__btn[data-segment="visibility"]').forEach(function (b) {
-        var on = b === btn;
-        b.classList.toggle("is-active", on);
-        b.setAttribute("aria-pressed", on ? "true" : "false");
-      });
-      var seg = btn.closest(".segmented--thumb");
-      if (seg) {
-        seg.setAttribute("data-active", btn.getAttribute("data-value") === "closed" ? "closed" : "open");
-      }
+  var visToggle = document.getElementById("lobbyVisibilityToggle");
+  if (visToggle && visToggle.dataset.bound !== "1") {
+    visToggle.dataset.bound = "1";
+    visToggle.addEventListener("click", function () {
+      var closed = visToggle.getAttribute("data-visibility") === "closed";
+      visToggle.setAttribute("data-visibility", closed ? "open" : "closed");
+      syncVisibilityToggleUi(visToggle);
     });
-  });
+  }
 
   modal.querySelectorAll('.segmented__btn[data-segment="player-chip"]').forEach(function (btn) {
     btn.addEventListener("click", function () {
@@ -275,7 +232,7 @@ export function bindCreateLobbyModal() {
       var settings = getLobbyModalSettings();
       closeCreateLobbyModal();
       createLobbyFlow(settings).catch(function (err) {
-        window.alert(userErrorMessage(err) || "Не вдалося створити лобі");
+        window.alert(userErrorMessage(err) || t("create.error"));
       });
     });
   }
@@ -283,83 +240,16 @@ export function bindCreateLobbyModal() {
   document.addEventListener("keydown", function (ev) {
     if (ev.key !== "Escape") return;
     if (modal.hasAttribute("hidden")) return;
-    var openFs = modal.querySelector("[data-fake-select].is-open");
-    if (openFs) {
-      closeFakeSelectWrap(openFs);
+    if (closeOpenFakeSelectOnEscape(modal)) {
       ev.preventDefault();
       return;
     }
     closeCreateLobbyModal();
   });
 
-  function bindLobbyFakeSelects() {
-    function docClose(ev) {
-      if (modal.hasAttribute("hidden")) return;
-      modal.querySelectorAll("[data-fake-select].is-open").forEach(function (fs) {
-        if (!fakeSelectContains(fs, ev.target)) closeFakeSelectWrap(fs);
-      });
-    }
-
-    var modalBody = modal.querySelector(".modal__body--game");
-    if (modalBody) {
-      modalBody.addEventListener("scroll", repositionOpenLobbyFakeSelects, { passive: true });
-    }
-
-    if (!window.__connectFourFakeSelectViewportBound) {
-      window.__connectFourFakeSelectViewportBound = true;
-      window.addEventListener("resize", repositionOpenLobbyFakeSelects);
-      if (window.visualViewport) {
-        window.visualViewport.addEventListener("resize", repositionOpenLobbyFakeSelects);
-        window.visualViewport.addEventListener("scroll", repositionOpenLobbyFakeSelects);
-      }
-    }
-
-    modal.querySelectorAll("[data-fake-select]").forEach(function (wrap) {
-      var trigger = wrap.querySelector(".fake-select__trigger");
-      var list = wrap.querySelector(".fake-select__list");
-      var hidden = wrap.querySelector('input[type="hidden"]');
-      var valSpan = wrap.querySelector(".fake-select__value");
-      var options = list ? list.querySelectorAll('[role="option"]') : [];
-      if (!trigger || !list || !hidden || !valSpan) return;
-
-      trigger.addEventListener("click", function (e) {
-        e.stopPropagation();
-        var opening = !wrap.classList.contains("is-open");
-        modal.querySelectorAll("[data-fake-select].is-open").forEach(function (w) {
-          if (w !== wrap) closeFakeSelectWrap(w);
-        });
-        if (opening) {
-          wrap.classList.add("is-open");
-          list.hidden = false;
-          trigger.setAttribute("aria-expanded", "true");
-          portalFakeSelectList(wrap, list);
-          positionFakeSelectList(wrap);
-          requestAnimationFrame(function () {
-            positionFakeSelectList(wrap);
-          });
-        } else {
-          closeFakeSelectWrap(wrap);
-        }
-      });
-
-      options.forEach(function (opt) {
-        opt.addEventListener("click", function (e) {
-          e.stopPropagation();
-          hidden.value = opt.getAttribute("data-value") || "";
-          valSpan.textContent = opt.textContent.replace(/\s+/g, " ").trim();
-          options.forEach(function (o) {
-            var sel = o === opt;
-            o.setAttribute("aria-selected", sel ? "true" : "false");
-            o.classList.toggle("is-selected", sel);
-          });
-          closeFakeSelectWrap(wrap);
-        });
-      });
-    });
-
-    document.addEventListener("mousedown", docClose);
-    document.addEventListener("touchstart", docClose);
-  }
-
-  bindLobbyFakeSelects();
+  bindFakeSelectsInModal(modal, {
+    labelForTimeValue: labelForTimeValue,
+    labelForIncValue: labelForIncValue,
+  });
+  syncCreateLobbySelectLabels();
 }

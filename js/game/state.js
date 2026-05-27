@@ -1,3 +1,5 @@
+import { DEFAULT_GAME_ID } from "../games/index.js";
+
 /** Мутабельний клієнтський стан поточної партії. */
 export const game = {
   grid: /** @type {string[][]} */ ([]),
@@ -7,6 +9,7 @@ export const game = {
   clockYellowSec: 60,
   clockRedSec: 60,
   incSec: 0,
+  baseSec: 60,
   clockTimerId: /** @type {ReturnType<typeof setInterval> | null} */ (null),
   humanChipColor: "yellow",
   lobbyId: /** @type {string|null} */ (null),
@@ -16,6 +19,11 @@ export const game = {
   status: /** @type {string|null} */ (null),
   opponent: /** @type {object|null} */ (null),
   waiting: false,
+  lastTurnLabelKey: /** @type {string|null} */ (null),
+  winLine: /** @type {{col:number,row:number}[]|null} */ (null),
+  winCells: /** @type {{row:number,col:number}[]|null} */ (null),
+  gameType: DEFAULT_GAME_ID,
+  tttState: /** @type {{cells:(string|null)[],hostOrder:number[],guestOrder:number[]}|null} */ (null),
 };
 
 export const leaveGate = {

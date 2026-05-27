@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html lang="en" data-i18n-document-title="app.title">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <meta name="theme-color" content="#0a1628" />
-    <title>Connect Four</title>
+    <title>Mini Games</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -16,12 +16,63 @@
     />
     <link rel="stylesheet" href="/css/app.css" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+      (function () {
+        var join = null;
+        try {
+          var q = new URLSearchParams(location.search);
+          join = q.get("join");
+          if (!join && window.Telegram && window.Telegram.WebApp) {
+            var sp =
+              window.Telegram.WebApp.initDataUnsafe &&
+              window.Telegram.WebApp.initDataUnsafe.start_param;
+            if (sp) join = String(sp);
+          }
+          if (join && join.indexOf("join") === 0) {
+            join = join.slice(4).replace(/^_/, "");
+          }
+        } catch (_e) {}
+        if (join) {
+          document.documentElement.dataset.appLoading = "join";
+        } else {
+          try {
+            if (sessionStorage.getItem("mg:game-tab") === "1") {
+              document.documentElement.dataset.appLoading = "1";
+            }
+          } catch (_e2) {}
+        }
+      })();
+    </script>
   </head>
   <body>
+    <div
+      id="bootGate"
+      class="boot-gate"
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div class="boot-gate__panel">
+        <svg
+          class="boot-gate__spinner"
+          viewBox="0 0 64 64"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <circle class="boot-gate__spinner-track" cx="32" cy="32" r="26" />
+          <circle class="boot-gate__spinner-arc" cx="32" cy="32" r="26" />
+        </svg>
+        <p class="boot-gate__text" data-i18n="loading">Loading</p>
+      </div>
+    </div>
     <div class="app" id="app">
       <header class="app-header">
         <div class="app-header__brand">
-          <span class="app-title">Connect Four</span>
+          <span class="app-title" data-i18n="app.title">Mini Games</span>
+        </div>
+        <div class="app-header__format" id="headerGameFormat" hidden>
+          <span class="app-header__format-label" data-i18n="game.format">Format</span>
+          <span class="app-header__format-value" id="gameMatchMeta">—</span>
         </div>
       </header>
 
@@ -34,9 +85,9 @@
           aria-labelledby="lobby-heading"
         >
           <header class="lobby-intro">
-            <p class="lobby-intro__pulse">Гравців онлайн: <span id="lobbyOnlineCount">—</span></p>
-            <h1 class="lobby-intro__title view__title" id="lobby-heading">Лобі</h1>
-            <p class="lobby-intro__tagline">Чотири в ряд — створи стіл або долучись до матчу.</p>
+            <p class="lobby-intro__pulse"><span data-i18n="lobby.playersOnline">Players online:</span> <span id="lobbyOnlineCount">—</span></p>
+            <h1 class="lobby-intro__title view__title" id="lobby-heading" data-i18n="lobby.title">Lobby</h1>
+            <p class="lobby-intro__tagline" data-i18n="lobby.tagline">Four in a row — create a table or join a match.</p>
           </header>
 
           <article class="game-hub-card">
@@ -50,15 +101,15 @@
               </div>
             </div>
             <div class="game-hub-card__panel">
-              <p class="game-hub-card__eyebrow">Швидкий матч</p>
-              <h2 class="game-hub-card__heading">Створи свою партію</h2>
-              <button type="button" class="btn btn--play game-hub-card__cta" id="btnOpenCreateLobby">
-                Створити лобі
+              <p class="game-hub-card__eyebrow" data-i18n="lobby.quickMatch">Quick match</p>
+              <h2 class="game-hub-card__heading" data-i18n="lobby.createHeading">Start your game</h2>
+              <button type="button" class="btn btn--play game-hub-card__cta" id="btnOpenCreateLobby" data-i18n="lobby.createBtn">
+                Create lobby
               </button>
             </div>
           </article>
 
-          <h3 class="section-label section-label--lobby">Активні кімнати</h3>
+          <h3 class="section-label section-label--lobby" data-i18n="lobby.activeRooms">Active rooms</h3>
           <ul class="card-list" id="lobbyList">
             <!-- filled by JS -->
           </ul>
@@ -72,11 +123,11 @@
           aria-labelledby="profile-heading"
           hidden
         >
-          <h1 class="view__title" id="profile-heading">Профіль</h1>
+          <h1 class="view__title" id="profile-heading" data-i18n="profile.title">Profile</h1>
 
           <article class="profile-hero">
             <div class="profile-hero__toolbar">
-              <button type="button" class="profile-settings-btn" aria-label="Налаштування">
+              <button type="button" class="profile-settings-btn" id="btnOpenSettings" data-i18n-aria="profile.settings">
                 <svg
                   class="profile-settings-btn__icon"
                   viewBox="0 0 24 24"
@@ -105,33 +156,33 @@
                 class="profile-hero__avatar"
                 id="profileAvatar"
                 role="img"
-                aria-label="Аватар гравця"
+                data-i18n-aria="profile.avatarAria"
               >
                 ?
               </div>
             </div>
             <div class="profile-hero__info">
-              <h2 class="profile-hero__name" id="profileName">Гравець</h2>
+              <h2 class="profile-hero__name" id="profileName">Player</h2>
               <p class="profile-hero__username" id="profileUsername" hidden></p>
               <p class="profile-hero__id" id="profileId">id: —</p>
             </div>
             <div class="stat-grid">
               <div class="stat-pill">
                 <span class="stat-pill__value" id="statWinrate">—</span>
-                <span class="stat-pill__label">Winrate</span>
+                <span class="stat-pill__label" data-i18n="profile.winrate">Winrate</span>
               </div>
               <div class="stat-pill">
                 <span class="stat-pill__value" id="statGames">—</span>
-                <span class="stat-pill__label">Ігор</span>
+                <span class="stat-pill__label" data-i18n="profile.games">Games</span>
               </div>
               <div class="stat-pill">
                 <span class="stat-pill__value" id="statRating">—</span>
-                <span class="stat-pill__label">Рейтинг</span>
+                <span class="stat-pill__label" data-i18n="profile.rating">Rating</span>
               </div>
             </div>
           </article>
 
-          <h3 class="section-label">Історія ігор</h3>
+          <h3 class="section-label" data-i18n="profile.history">Match history</h3>
           <ul class="history-list" id="historyList">
             <!-- filled by JS -->
           </ul>
@@ -145,16 +196,7 @@
           aria-labelledby="lb-heading"
           hidden
         >
-          <h1 class="view__title" id="lb-heading">Таблиця лідерів</h1>
-
-          <div class="lb-tabs" role="tablist" aria-label="Період">
-            <button type="button" class="lb-tab is-active" data-period="week" role="tab" aria-selected="true">
-              Тиждень
-            </button>
-            <button type="button" class="lb-tab" data-period="all" role="tab" aria-selected="false">
-              Усі часи
-            </button>
-          </div>
+          <h1 class="view__title" id="lb-heading" data-i18n="leaderboard.title">Leaderboard</h1>
 
           <ol class="lb-list" id="leaderboardList">
             <!-- filled by JS -->
@@ -172,71 +214,241 @@
           <div class="game-screen">
             <header class="game-screen__top">
               <div class="game-screen__brand">
-                <p class="game-screen__eyebrow">Твоя партія</p>
-                <h1 class="game-screen__title" id="game-heading">Чотири в ряд</h1>
+                <p class="game-screen__eyebrow" data-i18n="game.yourMatch">Your match</p>
+                <h1 class="game-screen__title" id="game-heading" data-i18n="game.title">Four in a row</h1>
               </div>
-              <div class="game-screen__chip">
-                <span class="game-screen__chip-label">Формат</span>
-                <span class="game-screen__chip-value" id="gameMatchMeta">—</span>
-              </div>
+              <p class="game-screen__spectators" id="gameSpectatorBar" hidden>
+                <span class="game-screen__spectators-label" data-i18n="game.spectators">Spectators</span>
+                <span class="game-screen__spectators-count" id="gameSpectatorCount">0</span>
+              </p>
             </header>
 
-            <div class="game-clocks" aria-live="polite">
-              <div class="game-clock game-clock--player game-clock--chip-yellow is-active" id="gameClockYellowPanel">
-                <span class="game-clock__label">Ти</span>
-                <span class="game-clock__wrap">
-                  <span class="game-clock__time" id="gameClockYellowValue">1:00</span>
-                  <span class="game-clock__bonus" id="gameClockYellowBonus" aria-hidden="true"></span>
-                </span>
+            <div class="game-screen__match" id="gameScreenMatch">
+              <div class="game-clocks" aria-live="polite">
+                <div class="game-clock game-clock--player game-clock--chip-yellow is-active" id="gameClockYellowPanel">
+                  <span class="game-clock__label" data-i18n="game.you">You</span>
+                  <span class="game-clock__wrap">
+                    <span class="game-clock__time" id="gameClockYellowValue">1:00</span>
+                    <span class="game-clock__bonus" id="gameClockYellowBonus" aria-hidden="true"></span>
+                  </span>
+                </div>
+                <div class="game-clock game-clock--opponent game-clock--chip-red" id="gameClockRedPanel">
+                  <span class="game-clock__label" data-i18n="game.opponent">Opponent</span>
+                  <span class="game-clock__wrap">
+                    <span class="game-clock__time" id="gameClockRedValue">1:00</span>
+                    <span class="game-clock__bonus" id="gameClockRedBonus" aria-hidden="true"></span>
+                  </span>
+                </div>
               </div>
-              <div class="game-clock game-clock--opponent game-clock--chip-red" id="gameClockRedPanel">
-                <span class="game-clock__label">Суперник</span>
-                <span class="game-clock__wrap">
-                  <span class="game-clock__time" id="gameClockRedValue">1:00</span>
-                  <span class="game-clock__bonus" id="gameClockRedBonus" aria-hidden="true"></span>
-                </span>
+
+              <div class="game-board-shell">
+                <div class="game-board__legend" aria-hidden="true">
+                  <span class="game-board__legend-disk game-board__legend-disk--yellow" id="gameLegendHumanDisk"></span>
+                  <span data-i18n="game.legendYou">you</span>
+                  <span class="game-board__legend-sep">·</span>
+                  <span
+                    class="game-board__legend-disk game-board__legend-disk--chip-red"
+                    id="gameLegendOppDisk"
+                  ></span>
+                  <span data-i18n="game.legendOpponent">opponent</span>
+                </div>
+                <div class="game-board__frame">
+                  <div class="game-board" id="gameBoard" role="group" data-i18n-aria="game.boardAria"></div>
+                </div>
               </div>
             </div>
 
-            <div class="game-board-shell">
-              <div class="game-board__legend" aria-hidden="true">
-                <span class="game-board__legend-disk game-board__legend-disk--yellow" id="gameLegendHumanDisk"></span>
-                <span>ти</span>
-                <span class="game-board__legend-sep">·</span>
-                <span
-                  class="game-board__legend-disk game-board__legend-disk--chip-red"
-                  id="gameLegendOppDisk"
-                ></span>
-                <span>суперник</span>
+            <section class="game-pregame" id="gamePregame" hidden aria-labelledby="pregame-heading">
+              <header class="game-pregame__head">
+                <p class="game-pregame__eyebrow" data-i18n="game.yourMatch">Your match</p>
+                <h2 class="game-pregame__title" id="pregame-heading" data-i18n="pregame.waitingTitle">Lobby</h2>
+                <p class="game-pregame__game-name" id="pregameGameName"></p>
+                <p class="game-pregame__format">
+                  <span class="game-pregame__format-value" id="pregameMatchMeta">—</span>
+                </p>
+              </header>
+              <p class="game-pregame__status" id="pregameStatus" data-i18n="pregame.waitingOpponent">Waiting for opponent to join…</p>
+              <div class="pregame-chips" id="pregameChips" aria-hidden="true">
+                <div class="pregame-chips__slot" id="pregameChipMe"></div>
+                <div
+                  class="pregame-chips__countdown"
+                  id="pregameChipsCountdown"
+                  hidden
+                  aria-live="assertive"
+                >
+                  3
+                </div>
+                <div class="pregame-chips__slot" id="pregameChipOpp"></div>
               </div>
-              <div class="game-board" id="gameBoard" role="group" aria-label="Ігрове поле, 7 колонок"></div>
-              <div class="game-waiting" id="gameWaiting" hidden>
-                <p class="game-waiting__title">Очікуємо суперника</p>
-                <p class="game-waiting__hint">Надішли посилання другу в Telegram</p>
-                <button type="button" class="btn btn--invite" id="btnShareLobby">Запросити друга</button>
+              <div class="pregame-players">
+                <article class="pregame-player pregame-player--me" id="pregameSlotMe">
+                  <div class="pregame-player__title">
+                    <span class="pregame-player__crown" hidden aria-hidden="true">
+                      <img
+                        class="pregame-player__crown-icon"
+                        alt=""
+                        decoding="async"
+                        draggable="false"
+                      />
+                    </span>
+                    <p class="pregame-player__label" data-i18n="game.you">You</p>
+                  </div>
+                  <div class="pregame-player__avatar" aria-hidden="true"></div>
+                  <p class="pregame-player__name"></p>
+                  <div class="pregame-player__ready-slot">
+                    <button
+                      type="button"
+                      class="pregame-ready__btn"
+                      id="pregameHostReadyBtn"
+                      hidden
+                      data-i18n-aria="pregame.readyAria"
+                      aria-pressed="false"
+                    >
+                      <span class="pregame-ready__check" aria-hidden="true">
+                        <svg class="pregame-ready__check-icon" viewBox="0 0 24 24" fill="none">
+                          <path
+                            d="M6 12.5 10 16.5 18 7.5"
+                            stroke="currentColor"
+                            stroke-width="2.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      </span>
+                    </button>
+                    <div
+                      class="pregame-ready-badge pregame-ready-badge--muted"
+                      id="pregameHostReadyBadge"
+                      hidden
+                      aria-hidden="true"
+                    >
+                      <span class="pregame-ready__check" aria-hidden="true">
+                        <svg class="pregame-ready__check-icon" viewBox="0 0 24 24" fill="none">
+                          <path
+                            d="M6 12.5 10 16.5 18 7.5"
+                            stroke="currentColor"
+                            stroke-width="2.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      </span>
+                    </div>
+                  </div>
+                </article>
+                <article class="pregame-player pregame-player--opp" id="pregameSlotOpp">
+                  <button
+                    type="button"
+                    class="pregame-player__kick"
+                    id="pregameGuestLeaveBtn"
+                    hidden
+                    data-i18n-aria="pregame.leaveSeatAria"
+                  >
+                    <svg class="pregame-player__kick-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M7 7l10 10M17 7L7 17" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="pregame-player__kick"
+                    id="pregameHostKickBtn"
+                    hidden
+                    data-i18n-aria="pregame.kickAria"
+                  >
+                    <svg class="pregame-player__kick-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                      <path d="M7 7l10 10M17 7L7 17" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" />
+                    </svg>
+                  </button>
+                  <div class="pregame-player__title">
+                    <span class="pregame-player__crown" hidden aria-hidden="true">
+                      <img
+                        class="pregame-player__crown-icon"
+                        alt=""
+                        decoding="async"
+                        draggable="false"
+                      />
+                    </span>
+                    <p class="pregame-player__label" data-i18n="game.opponent">Opponent</p>
+                  </div>
+                  <div class="pregame-player__main" id="pregameOppMain">
+                    <div class="pregame-player__avatar" aria-hidden="true"></div>
+                    <p class="pregame-player__name"></p>
+                  </div>
+                  <div class="pregame-player__ready-slot">
+                    <button
+                      type="button"
+                      class="pregame-ready__btn"
+                      id="pregameGuestReadyBtn"
+                      hidden
+                      data-i18n-aria="pregame.readyAria"
+                      aria-pressed="false"
+                    >
+                      <span class="pregame-ready__check" aria-hidden="true">
+                        <svg class="pregame-ready__check-icon" viewBox="0 0 24 24" fill="none">
+                          <path
+                            d="M6 12.5 10 16.5 18 7.5"
+                            stroke="currentColor"
+                            stroke-width="2.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      </span>
+                    </button>
+                    <div
+                      class="pregame-ready-badge pregame-ready-badge--muted"
+                      id="pregameOppReadyBadge"
+                      hidden
+                      aria-hidden="true"
+                    >
+                      <span class="pregame-ready__check" aria-hidden="true">
+                        <svg class="pregame-ready__check-icon" viewBox="0 0 24 24" fill="none">
+                          <path
+                            d="M6 12.5 10 16.5 18 7.5"
+                            stroke="currentColor"
+                            stroke-width="2.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      </span>
+                    </div>
+                  </div>
+                  <div class="pregame-player__invite-panel" id="pregameOppInvitePanel" hidden>
+                    <div class="pregame-player__invite" id="pregameOppInvite" hidden>
+                      <p class="pregame-player__invite-hint" data-i18n="pregame.waitingHint">Send the link to a friend in Telegram</p>
+                      <button type="button" class="btn btn--invite" id="btnShareLobby" data-i18n="game.inviteBtn">Invite friend</button>
+                    </div>
+                    <div class="pregame-player__spectator-join" id="pregameSpectatorJoin" hidden>
+                      <p class="pregame-player__invite-hint" data-i18n="pregame.joinAsPlayerHint">Take the open seat and play</p>
+                      <button type="button" class="btn btn--pregame-join" id="btnPregameJoinAsGuest" data-i18n="lobby.actionJoin">Join</button>
+                    </div>
+                  </div>
+                </article>
               </div>
-            </div>
+            </section>
 
             <footer class="game-screen__footer">
               <div class="game-turn game-turn--disk-yellow" id="gameTurnBanner">
                 <span class="game-turn__disk" aria-hidden="true"></span>
-                <p class="game-turn__text" id="gameTurnLabel">Твій хід — жовті фішки</p>
+                <p class="game-turn__text" id="gameTurnLabel">Your turn — yellow discs</p>
               </div>
               <button
                 type="button"
                 class="btn btn--muted game-footer-return"
                 id="btnGameReturnLobby"
                 hidden
+                data-i18n="game.returnLobby"
               >
-                Повернутися в лобі
+                Back to lobby
               </button>
-              <p class="game-screen__hint">Обери колонку — фішка впаде вниз, як у класичному Connect Four.</p>
+              <p class="game-screen__hint" data-i18n="game.hint">Pick a column — the disc drops down, just like classic Connect Four.</p>
             </footer>
           </div>
         </section>
       </main>
 
-      <nav class="tab-bar" aria-label="Основні вкладки">
+      <nav class="tab-bar" data-i18n-aria="nav.tabsAria">
         <div class="tab-bar__inner">
           <div class="tab-bar__segment is-active">
             <button
@@ -253,7 +465,7 @@
                 stroke-linejoin="round"
               />
             </svg>
-            <span class="tab-bar__label">Лобі</span>
+            <span class="tab-bar__label" data-i18n="nav.lobby">Lobby</span>
             </button>
           </div>
           <span class="tab-bar__divider" aria-hidden="true"></span>
@@ -272,7 +484,7 @@
                 stroke-linecap="round"
               />
             </svg>
-            <span class="tab-bar__label">Профіль</span>
+            <span class="tab-bar__label" data-i18n="nav.profile">Profile</span>
             </button>
           </div>
           <span class="tab-bar__divider" aria-hidden="true"></span>
@@ -287,7 +499,7 @@
               />
               <path d="M7 10L10 7L14 11L18 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
-            <span class="tab-bar__label">Рейтинг</span>
+            <span class="tab-bar__label" data-i18n="nav.leaderboard">Leaderboard</span>
             </button>
           </div>
         </div>
@@ -295,21 +507,73 @@
 
     </div>
 
+    <!-- Екран вибору гри -->
+    <div class="modal" id="pickGameModal" hidden>
+      <div class="modal__backdrop" data-pick-game-close tabindex="-1" aria-hidden="true"></div>
+      <div
+        class="modal__sheet modal__sheet--pick-game"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pickGameTitle"
+      >
+        <header class="modal__header modal__header--game modal__header--center">
+          <div class="modal__header-text">
+            <h2 class="modal__title" id="pickGameTitle" data-i18n="create.pickGameTitle">Choose a game</h2>
+          </div>
+          <button
+            type="button"
+            class="modal__close-btn modal__close-btn--game"
+            data-pick-game-close
+            data-i18n-aria="modal.close"
+          >
+            <svg class="modal__close-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M18 6L6 18M6 6l12 12"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </header>
+        <div class="pick-game-body">
+          <ul id="pickGameList" class="pick-game-list" role="list"></ul>
+        </div>
+      </div>
+    </div>
+
     <!-- Модальне вікно: параметри нового лобі -->
     <div class="modal" id="createLobbyModal" hidden>
+      <input type="hidden" id="lobbyGameType" value="connect_four" />
       <div class="modal__backdrop" data-modal-close tabindex="-1" aria-hidden="true"></div>
       <div
-        class="modal__sheet"
+        class="modal__sheet modal__sheet--create-lobby"
         role="dialog"
         aria-modal="true"
         aria-labelledby="createLobbyTitle"
       >
         <header class="modal__header modal__header--game">
+          <button
+            type="button"
+            class="modal__back-btn"
+            id="btnCreateLobbyBack"
+            data-i18n-aria="create.backToGames"
+          >
+            <svg class="modal__back-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M15 18l-6-6 6-6"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
           <div class="modal__header-text">
-            <p class="modal__eyebrow">Нова партія</p>
-            <h2 class="modal__title" id="createLobbyTitle">Параметри лобі</h2>
+            <p class="modal__eyebrow" id="createLobbyGameLabel" data-i18n="game.connectFour">Connect Four</p>
+            <h2 class="modal__title" id="createLobbyTitle" data-i18n="create.title">Lobby settings</h2>
           </div>
-          <button type="button" class="modal__close-btn modal__close-btn--game" data-modal-close aria-label="Закрити">
+          <button type="button" class="modal__close-btn modal__close-btn--game" data-modal-close data-i18n-aria="modal.close">
             <svg class="modal__close-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path
                 d="M18 6L6 18M6 6l12 12"
@@ -332,51 +596,60 @@
         <div class="modal__body modal__body--game">
           <div class="modal-row">
             <div class="modal-row__text">
-              <span class="modal-row__title">Доступ до лобі</span>
-              <span class="modal-row__subtitle">Хто бачить стіл у списку активних кімнат</span>
+              <span class="modal-row__title" data-i18n="create.visibilityTitle">Lobby access</span>
+              <span class="modal-row__subtitle" data-i18n="create.visibilitySub">Who sees the table in the active rooms list</span>
             </div>
             <div class="modal-row__control">
-              <div
-                class="segmented segmented--compact segmented--thumb"
-                role="group"
-                aria-label="Доступ до лобі"
-                data-active="open"
+              <button
+                type="button"
+                class="lobby-visibility-toggle"
+                id="lobbyVisibilityToggle"
+                data-visibility="open"
+                aria-pressed="false"
+                data-i18n-aria="create.visibilityOpen"
               >
-                <span class="segmented__thumb" aria-hidden="true"></span>
-                <button
-                  type="button"
-                  class="segmented__btn is-active"
-                  id="lobbyVisibilityOpen"
-                  aria-pressed="true"
-                  data-segment="visibility"
-                  data-value="open"
-                >
-                  Відкрите
-                </button>
-                <button
-                  type="button"
-                  class="segmented__btn"
-                  id="lobbyVisibilityClosed"
-                  aria-pressed="false"
-                  data-segment="visibility"
-                  data-value="closed"
-                >
-                  Закрите
-                </button>
-              </div>
+                <span class="lobby-visibility-toggle__icon" aria-hidden="true">
+                  <svg class="lobby-visibility-toggle__lock" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <rect
+                      x="5"
+                      y="11"
+                      width="14"
+                      height="10"
+                      rx="2"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    />
+                    <path
+                      class="lobby-visibility-toggle__shackle lobby-visibility-toggle__shackle--open"
+                      d="M6.5 11V6.25a5.75 5.75 0 0 1 11 0"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                    <path
+                      class="lobby-visibility-toggle__shackle lobby-visibility-toggle__shackle--closed"
+                      d="M6.5 11V6.25a5.75 5.75 0 0 1 11 0v4.75"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </span>
+              </button>
             </div>
           </div>
 
-          <div class="modal-row">
+          <div class="modal-row" id="createLobbyChipRow">
             <div class="modal-row__text">
-              <span class="modal-row__title">Колір твоїх фішок</span>
-              <span class="modal-row__subtitle">На полі та годиннику</span>
+              <span class="modal-row__title" id="createLobbyChipTitle" data-i18n="create.chipTitle">Your disc color</span>
+              <span class="modal-row__subtitle" id="createLobbyChipSubtitle" data-i18n="create.chipSub">On the board and clock</span>
             </div>
             <div class="modal-row__control">
               <div
-                class="segmented segmented--compact segmented--thumb"
+                class="segmented segmented--compact segmented--thumb segmented--player-chip"
+                id="createLobbyChipSegmented"
                 role="group"
-                aria-label="Колір твоїх фішок"
+                data-i18n-aria="create.chipAria"
                 data-active="yellow"
               >
                 <span class="segmented__thumb" aria-hidden="true"></span>
@@ -387,9 +660,8 @@
                   aria-pressed="true"
                   data-segment="player-chip"
                   data-value="yellow"
-                >
-                  Жовтий
-                </button>
+                  data-i18n-aria="create.chipYellow"
+                ></button>
                 <button
                   type="button"
                   class="segmented__btn"
@@ -397,17 +669,16 @@
                   aria-pressed="false"
                   data-segment="player-chip"
                   data-value="red"
-                >
-                  Червоний
-                </button>
+                  data-i18n-aria="create.chipRed"
+                ></button>
               </div>
             </div>
           </div>
 
           <div class="modal-row modal-row--interactive">
             <div class="modal-row__text">
-              <span class="modal-row__title">Час на гравця</span>
-              <span class="modal-row__subtitle">Початковий запас перед грою</span>
+              <span class="modal-row__title" data-i18n="create.timeTitle">Time per player</span>
+              <span class="modal-row__subtitle" data-i18n="create.timeSub">Starting clock before the game</span>
             </div>
             <div class="modal-row__control">
               <div class="fake-select" data-fake-select>
@@ -418,7 +689,7 @@
                   aria-expanded="false"
                   aria-haspopup="listbox"
                 >
-                  <span class="fake-select__value">1 хв</span>
+                  <span class="fake-select__value" data-time-value="60">1 min</span>
                   <svg class="fake-select__caret" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path
                       d="M6 9l6 6 6-6"
@@ -430,13 +701,13 @@
                   </svg>
                 </button>
                 <ul class="fake-select__list" role="listbox" hidden>
-                  <li role="option" tabindex="-1" data-value="15">15 сек</li>
-                  <li role="option" tabindex="-1" data-value="30">30 сек</li>
-                  <li role="option" tabindex="-1" data-value="60" class="is-selected" aria-selected="true">
-                    1 хв
+                  <li role="option" tabindex="-1" data-value="15" data-time-value="15">15 sec</li>
+                  <li role="option" tabindex="-1" data-value="30" data-time-value="30">30 sec</li>
+                  <li role="option" tabindex="-1" data-value="60" class="is-selected" aria-selected="true" data-time-value="60">
+                    1 min
                   </li>
-                  <li role="option" tabindex="-1" data-value="120">2 хв</li>
-                  <li role="option" tabindex="-1" data-value="180">3 хв</li>
+                  <li role="option" tabindex="-1" data-value="120" data-time-value="120">2 min</li>
+                  <li role="option" tabindex="-1" data-value="180" data-time-value="180">3 min</li>
                 </ul>
               </div>
             </div>
@@ -444,8 +715,8 @@
 
           <div class="modal-row modal-row--interactive">
             <div class="modal-row__text">
-              <span class="modal-row__title">Додати після ходу</span>
-              <span class="modal-row__subtitle">Секунди на годинник того, хто зіграв хід</span>
+              <span class="modal-row__title" data-i18n="create.incrementTitle">Add after move</span>
+              <span class="modal-row__subtitle" data-i18n="create.incrementSub">Seconds added to the mover's clock</span>
             </div>
             <div class="modal-row__control">
               <div class="fake-select" data-fake-select>
@@ -456,7 +727,7 @@
                   aria-expanded="false"
                   aria-haspopup="listbox"
                 >
-                  <span class="fake-select__value">+1 с</span>
+                  <span class="fake-select__value" data-inc-value="1">+1 s</span>
                   <svg class="fake-select__caret" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path
                       d="M6 9l6 6 6-6"
@@ -468,21 +739,21 @@
                   </svg>
                 </button>
                 <ul class="fake-select__list" role="listbox" hidden>
-                  <li role="option" tabindex="-1" data-value="0">0 с</li>
-                  <li role="option" tabindex="-1" data-value="1" class="is-selected" aria-selected="true">
-                    +1 с
+                  <li role="option" tabindex="-1" data-value="0" data-inc-value="0">0 s</li>
+                  <li role="option" tabindex="-1" data-value="1" class="is-selected" aria-selected="true" data-inc-value="1">
+                    +1 s
                   </li>
-                  <li role="option" tabindex="-1" data-value="2">+2 с</li>
-                  <li role="option" tabindex="-1" data-value="3">+3 с</li>
-                  <li role="option" tabindex="-1" data-value="5">+5 с</li>
+                  <li role="option" tabindex="-1" data-value="2" data-inc-value="2">+2 s</li>
+                  <li role="option" tabindex="-1" data-value="3" data-inc-value="3">+3 s</li>
+                  <li role="option" tabindex="-1" data-value="5" data-inc-value="5">+5 s</li>
                 </ul>
               </div>
             </div>
           </div>
         </div>
         <footer class="modal__footer modal__footer--game">
-          <button type="button" class="btn btn--muted btn--modal-foot" data-modal-close>Скасувати</button>
-          <button type="button" class="btn btn--play btn--modal-foot" id="btnCreateLobbyConfirm">Створити лобі</button>
+          <button type="button" class="btn btn--muted btn--modal-foot" data-modal-close data-i18n="create.cancel">Cancel</button>
+          <button type="button" class="btn btn--play btn--modal-foot" id="btnCreateLobbyConfirm" data-i18n="create.confirm">Create lobby</button>
         </footer>
       </div>
     </div>
@@ -499,10 +770,10 @@
       >
         <header class="modal__header modal__header--game">
           <div class="modal__header-text">
-            <p class="modal__eyebrow">Лобі</p>
-            <h2 class="modal__title" id="replaceLobbyTitle">Активне лобі</h2>
+            <p class="modal__eyebrow" data-i18n="replace.eyebrow">Lobby</p>
+            <h2 class="modal__title" id="replaceLobbyTitle" data-i18n="replace.title">Active lobby</h2>
           </div>
-          <button type="button" class="modal__close-btn modal__close-btn--game" data-replace-close aria-label="Закрити">
+          <button type="button" class="modal__close-btn modal__close-btn--game" data-replace-close data-i18n-aria="modal.close">
             <svg class="modal__close-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path
                 d="M18 6L6 18M6 6l12 12"
@@ -514,14 +785,14 @@
           </button>
         </header>
         <div class="modal__body modal__body--game">
-          <p class="leave-game-modal__desc" id="replaceLobbyDesc">
-            У тебе вже є лобі. Закрити його і приєднатись до цієї кімнати?
+          <p class="leave-game-modal__desc" id="replaceLobbyDesc" data-i18n="replace.descJoin">
+            You already have a lobby. Close it and join this room?
           </p>
         </div>
         <footer class="modal__footer modal__footer--game">
-          <button type="button" class="btn btn--muted btn--modal-foot" data-replace-close>Скасувати</button>
-          <button type="button" class="btn btn--play btn--modal-foot" id="btnReplaceLobbyConfirm">
-            Закрити і приєднатись
+          <button type="button" class="btn btn--muted btn--modal-foot" data-replace-close data-i18n="create.cancel">Cancel</button>
+          <button type="button" class="btn btn--play btn--modal-foot" id="btnReplaceLobbyConfirm" data-i18n="replace.confirmJoin">
+            Close and join
           </button>
         </footer>
       </div>
@@ -539,10 +810,10 @@
       >
         <header class="modal__header modal__header--game">
           <div class="modal__header-text">
-            <p class="modal__eyebrow" id="leaveGameEyebrow">Лобі</p>
-            <h2 class="modal__title" id="leaveGameTitle">Вийти з лобі?</h2>
+            <p class="modal__eyebrow" id="leaveGameEyebrow" data-i18n="leave.eyebrowLobby">Lobby</p>
+            <h2 class="modal__title" id="leaveGameTitle" data-i18n="leave.titleLobby">Leave lobby?</h2>
           </div>
-          <button type="button" class="modal__close-btn modal__close-btn--game" data-leave-close aria-label="Закрити">
+          <button type="button" class="modal__close-btn modal__close-btn--game" data-leave-close data-i18n-aria="modal.close">
             <svg class="modal__close-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path
                 d="M18 6L6 18M6 6l12 12"
@@ -554,13 +825,116 @@
           </button>
         </header>
         <div class="modal__body modal__body--game">
-          <p class="leave-game-modal__desc" id="leaveGameDesc">
-            Лобі закриється, і ти повернешся до списку кімнат.
+          <p class="leave-game-modal__desc" id="leaveGameDesc" data-i18n="leave.descHostAlone">
+            The lobby will close and you will return to the room list.
           </p>
         </div>
         <footer class="modal__footer modal__footer--game">
-          <button type="button" class="btn btn--muted btn--modal-foot" id="btnLeaveGameStay">Залишитись</button>
-          <button type="button" class="btn btn--modal-risk btn--modal-foot" id="btnLeaveGameConfirm">Вийти</button>
+          <button type="button" class="btn btn--muted btn--modal-foot" id="btnLeaveGameStay" data-i18n="leave.stay">Stay</button>
+          <button type="button" class="btn btn--modal-risk btn--modal-foot" id="btnLeaveGameConfirm" data-i18n="leave.exit">Leave</button>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div class="modal" id="settingsModal" hidden>
+      <div class="modal__backdrop" data-settings-close tabindex="-1" aria-hidden="true"></div>
+      <div
+        class="modal__sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settingsTitle"
+      >
+        <header class="modal__header modal__header--game">
+          <div class="modal__header-text">
+            <p class="modal__eyebrow" data-i18n="settings.eyebrow">Profile</p>
+            <h2 class="modal__title" id="settingsTitle" data-i18n="settings.title">Settings</h2>
+          </div>
+          <button type="button" class="modal__close-btn modal__close-btn--game" data-settings-close data-i18n-aria="modal.close">
+            <svg class="modal__close-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M18 6L6 18M6 6l12 12"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        </header>
+        <div class="modal__body modal__body--game">
+          <div class="modal-row">
+            <div class="modal-row__text">
+              <span class="modal-row__title" data-i18n="settings.musicTitle">Music</span>
+              <span class="modal-row__subtitle" data-i18n="settings.musicSub">Background track while playing</span>
+            </div>
+            <div class="modal-row__control">
+              <label class="toggle-switch">
+                <input
+                  type="checkbox"
+                  class="toggle-switch__input"
+                  id="settingsMusicToggle"
+                  role="switch"
+                  data-i18n-aria="settings.musicAria"
+                />
+                <span class="toggle-switch__track" aria-hidden="true">
+                  <span class="toggle-switch__thumb"></span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div class="modal-row">
+            <div class="modal-row__text">
+              <span class="modal-row__title" data-i18n="settings.languageTitle">Language</span>
+              <span class="modal-row__subtitle" data-i18n="settings.languageSub">Interface language</span>
+            </div>
+            <div class="modal-row__control">
+              <div
+                class="segmented segmented--compact segmented--thumb segmented--triple"
+                role="group"
+                data-segment-group="language"
+                data-i18n-aria="settings.languageAria"
+                data-active="en"
+              >
+                <span class="segmented__thumb" aria-hidden="true"></span>
+                <button
+                  type="button"
+                  class="segmented__btn is-active"
+                  aria-pressed="true"
+                  data-segment="language"
+                  data-value="en"
+                  data-i18n="settings.langEn"
+                >
+                  English
+                </button>
+                <button
+                  type="button"
+                  class="segmented__btn"
+                  aria-pressed="false"
+                  data-segment="language"
+                  data-value="uk"
+                  data-i18n="settings.langUk"
+                >
+                  Ukrainian
+                </button>
+                <button
+                  type="button"
+                  class="segmented__btn"
+                  aria-pressed="false"
+                  data-segment="language"
+                  data-value="ru"
+                  data-i18n="settings.langRu"
+                >
+                  Russian
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <footer class="modal__footer modal__footer--game">
+          <button type="button" class="btn btn--play btn--modal-foot btn--modal-foot-single" data-settings-close data-i18n="settings.done">
+            Done
+          </button>
         </footer>
       </div>
     </div>

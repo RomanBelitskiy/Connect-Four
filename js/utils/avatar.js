@@ -1,4 +1,5 @@
 import { initialFrom } from "./format.js";
+import { t } from "../i18n/index.js";
 
 function escapeAttr(value) {
   return String(value || "")
@@ -9,7 +10,7 @@ function escapeAttr(value) {
 
 export function avatarHtml(options) {
   var baseClass = options.baseClass || "lobby-card__initial";
-  var name = options.displayName || "Гравець";
+  var name = options.displayName || t("profile.player");
   var photoUrl = options.photoUrl;
   var letter = initialFrom(name);
 
@@ -41,12 +42,12 @@ export function applyAvatarElement(el, displayName, photoUrl) {
     el.classList.add("profile-hero__avatar--photo");
     el.style.backgroundImage = "url('" + String(photoUrl).replace(/'/g, "%27") + "')";
     el.textContent = "";
-    el.setAttribute("aria-label", displayName || "Аватар гравця");
+    el.setAttribute("aria-label", displayName || t("profile.avatarAria"));
     el.removeAttribute("aria-hidden");
   } else {
     el.classList.remove("profile-hero__avatar--photo");
     el.style.backgroundImage = "";
     el.textContent = initialFrom(displayName);
-    el.setAttribute("aria-label", "Аватар гравця");
+    el.setAttribute("aria-label", t("profile.avatarAria"));
   }
 }

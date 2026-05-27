@@ -1,0 +1,18 @@
+[Unit]
+Description=Mini Games Telegram Web App
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Connect Four
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/root/Connect Four/.env
+ExecStart=/bin/bash "/root/Connect Four/start.sh"
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

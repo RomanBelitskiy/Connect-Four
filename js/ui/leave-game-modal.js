@@ -3,12 +3,13 @@ import { refreshLobbies } from "../app/shell.js";
 import { game, leaveGate } from "../game/state.js";
 import { leaveActiveLobby } from "../game/lobby-session.js";
 import { isForfeitLeave, maybeForfeitActiveMatch } from "../game/match-board.js";
+import { t } from "../i18n/index.js";
 
 function getLeaveGameModal() {
   return document.getElementById("leaveGameModal");
 }
 
-function syncLeaveModalCopy() {
+export function syncLeaveModalCopy() {
   var modal = getLeaveGameModal();
   if (!modal) return;
 
@@ -23,34 +24,35 @@ function syncLeaveModalCopy() {
   var hasOpponent = !!(game.opponent && (game.opponent.displayName || game.opponent.username));
 
   if (forfeit) {
-    if (eyebrow) eyebrow.textContent = "Активна партія";
-    title.textContent = "Вийти з гри?";
-    desc.textContent =
-      "Це зарахується як поразка: суперник переможе, партія закриється, рейтинг зменшиться.";
-    if (stayBtn) stayBtn.textContent = "Залишитись у грі";
-    confirmBtn.textContent = "Вийти (поразка)";
+    if (eyebrow) eyebrow.textContent = t("leave.eyebrowMatch");
+    title.textContent = t("leave.titleMatch");
+    desc.textContent = t("leave.descForfeit");
+    if (stayBtn) stayBtn.textContent = t("leave.stayInGame");
+    confirmBtn.textContent = t("leave.exitForfeit");
     confirmBtn.classList.add("btn--modal-risk");
     confirmBtn.classList.remove("btn--muted");
   } else if (game.waiting || (game.matchActive && !game.matchFinished)) {
-    if (eyebrow) eyebrow.textContent = "Лобі";
-    title.textContent = "Вийти з лобі?";
-    if (game.myRole === "guest") {
-      desc.textContent = "Ти покинеш кімнату й повернешся до списку.";
+    if (eyebrow) eyebrow.textContent = t("leave.eyebrowLobby");
+    title.textContent = t("leave.titleLobby");
+    if (game.myRole === "spectator") {
+      desc.textContent = t("leave.descSpectator");
+    } else if (game.myRole === "guest") {
+      desc.textContent = t("leave.descGuest");
     } else if (hasOpponent) {
-      desc.textContent = "Суперник залишиться в кімнаті й зможе запросити нового гравця.";
+      desc.textContent = t("leave.descHostWithOpponent");
     } else {
-      desc.textContent = "Лобі закриється, і ти повернешся до списку кімнат.";
+      desc.textContent = t("leave.descHostAlone");
     }
-    if (stayBtn) stayBtn.textContent = "Залишитись";
-    confirmBtn.textContent = "Вийти";
+    if (stayBtn) stayBtn.textContent = t("leave.stay");
+    confirmBtn.textContent = t("leave.exit");
     confirmBtn.classList.remove("btn--modal-risk");
     confirmBtn.classList.add("btn--muted");
   } else {
-    if (eyebrow) eyebrow.textContent = "Лобі";
-    title.textContent = "Вийти?";
-    desc.textContent = "Ти повернешся до списку кімнат.";
-    if (stayBtn) stayBtn.textContent = "Залишитись";
-    confirmBtn.textContent = "Вийти";
+    if (eyebrow) eyebrow.textContent = t("leave.eyebrowLobby");
+    title.textContent = t("leave.titleShort");
+    desc.textContent = t("leave.descDefault");
+    if (stayBtn) stayBtn.textContent = t("leave.stay");
+    confirmBtn.textContent = t("leave.exit");
     confirmBtn.classList.remove("btn--modal-risk");
     confirmBtn.classList.add("btn--muted");
   }

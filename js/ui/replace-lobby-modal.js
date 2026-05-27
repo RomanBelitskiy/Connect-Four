@@ -1,24 +1,27 @@
-var COPY = {
-  create: {
-    desc: "У тебе вже є лобі. Закрити його і створити нове?",
-    confirm: "Закрити і створити",
-  },
-  join: {
-    desc: "У тебе вже є лобі. Закрити його і приєднатись до цієї кімнати?",
-    confirm: "Закрити і приєднатись",
-  },
-};
+import { t } from "../i18n/index.js";
+
+var lastMode = "create";
 
 function getReplaceLobbyModal() {
   return document.getElementById("replaceLobbyModal");
 }
 
 function applyReplaceLobbyCopy(mode) {
-  var copy = COPY[mode] || COPY.create;
+  lastMode = mode === "join" ? "join" : "create";
   var desc = document.getElementById("replaceLobbyDesc");
   var confirmBtn = document.getElementById("btnReplaceLobbyConfirm");
-  if (desc) desc.textContent = copy.desc;
-  if (confirmBtn) confirmBtn.textContent = copy.confirm;
+  if (desc) {
+    desc.textContent =
+      lastMode === "join" ? t("replace.descJoin") : t("replace.descCreate");
+  }
+  if (confirmBtn) {
+    confirmBtn.textContent =
+      lastMode === "join" ? t("replace.confirmJoin") : t("replace.confirmCreate");
+  }
+}
+
+export function syncReplaceLobbyModalCopy() {
+  applyReplaceLobbyCopy(lastMode);
 }
 
 /**

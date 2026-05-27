@@ -8,8 +8,8 @@ from fastapi.staticfiles import StaticFiles
 
 from server.bot import build_bot_application, init_bot_username
 from server.config import ROOT_DIR, settings
-from server.db import init_db
-from server.lobby_store import init_lobby_tables
+from server.db import init_db, apply_pending_migrations
+from server.lobby import init_lobby_tables
 from server.routes.api import router as api_router
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
@@ -27,6 +27,7 @@ async def lifespan(app: FastAPI):
 
     init_db()
     init_lobby_tables()
+    apply_pending_migrations()
     logger.info("PostgreSQL ready")
 
     if settings.is_bot_configured:
@@ -66,6 +67,14 @@ else:
         directory = ROOT_DIR / name
         if directory.is_dir():
             app.mount(f"/{name}", StaticFiles(directory=directory), name=name)
+
+    audio_dir = ROOT_DIR / "public" / "audio"
+    if audio_dir.is_dir():
+        app.mount("/audio", StaticFiles(directory=audio_dir), name="audio")
+
+    images_dir = ROOT_DIR / "public" / "images"
+    if images_dir.is_dir():
+        app.mount("/images", StaticFiles(directory=images_dir), name="images")
 
     @app.get("/")
     def serve_index():

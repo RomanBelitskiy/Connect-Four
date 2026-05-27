@@ -1,14 +1,18 @@
 import { switchTab } from "./nav.js";
-import { refreshLobbies, startLobbyListPolling } from "./shell.js";
+import { refreshLobbies, refreshLobbiesIfVisible, startLobbyListPolling } from "./shell.js";
+import { setLobbyFeedHandler } from "../api/lobby-feed.js";
 import { primeGamePresentation } from "../game/match-board.js";
 import { bindCreateLobbyModal } from "../ui/create-lobby-modal.js";
+import { bindPickGameModal } from "../ui/pick-game-modal.js";
 import { bindLeaveGameConfirmModal, requestSwitchToLobby } from "../ui/leave-game-modal.js";
 import { bindReplaceLobbyModal, confirmReplaceLobby } from "../ui/replace-lobby-modal.js";
 import { bindShareButtons } from "../ui/share.js";
 import { bindTelegramBackButton, setTelegramBackVisible } from "./telegram.js";
+import { bindSettingsModal } from "../ui/settings-modal.js";
 import { fetchActiveLobby } from "../api/client.js";
-import { joinLobbyById, reopenOwnLobby } from "../game/lobby-session.js";
+import { joinLobbyById, reopenOwnLobby, spectateLobbyById } from "../game/lobby-session.js";
 import { userErrorMessage } from "../utils/errors.js";
+import { t } from "../i18n/index.js";
 
 /** Під'єднує обробники табів, модалки лобі, гру на старті. */
 export function bindUi() {
@@ -23,21 +27,12 @@ export function bindUi() {
     });
   });
 
-  document.querySelectorAll(".lb-tab").forEach(function (tab) {
-    tab.addEventListener("click", function () {
-      document.querySelectorAll(".lb-tab").forEach(function (t) {
-        t.classList.remove("is-active");
-        t.setAttribute("aria-selected", "false");
-      });
-      tab.classList.add("is-active");
-      tab.setAttribute("aria-selected", "true");
-    });
-  });
-
+  bindPickGameModal();
   bindCreateLobbyModal();
   bindLeaveGameConfirmModal();
   bindReplaceLobbyModal();
   bindShareButtons();
+  bindSettingsModal();
   bindTelegramBackButton(function () {
     requestSwitchToLobby(null);
   });
@@ -64,13 +59,13 @@ export function bindUi() {
           if (existing && String(existing.id) !== String(id)) {
             var ok = await confirmReplaceLobby({ mode: "join" });
             if (!ok) return;
-            await joinLobbyById(id, { skipActiveCheck: true, replaceExisting: true });
+            await spectateLobbyById(id, { skipActiveCheck: true, replaceExisting: true });
             return;
           }
 
-          await joinLobbyById(id);
+          await spectateLobbyById(id);
         } catch (err) {
-          window.alert(userErrorMessage(err) || "Не вдалося відкрити кімнату");
+          window.alert(userErrorMessage(err) || t("error.openRoom"));
           refreshLobbies();
         }
       })();
@@ -85,6 +80,7 @@ export function bindUi() {
     });
   }
 
+  setLobbyFeedHandler(refreshLobbiesIfVisible);
   startLobbyListPolling();
   primeGamePresentation();
 }
