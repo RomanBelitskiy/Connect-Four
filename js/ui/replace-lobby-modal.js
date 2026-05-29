@@ -1,4 +1,5 @@
 import { t } from "../i18n/index.js";
+import { closeModal, openModal } from "./modal-utils.js";
 
 var lastMode = "create";
 
@@ -40,12 +41,10 @@ export function confirmReplaceLobby(options) {
     }
 
     applyReplaceLobbyCopy(mode);
-    modal.removeAttribute("hidden");
-    document.documentElement.style.overflow = "hidden";
+    openModal(modal);
 
     function cleanup() {
-      modal.setAttribute("hidden", "");
-      document.documentElement.style.overflow = "";
+      closeModal(modal);
       modal.querySelectorAll("[data-replace-close]").forEach(function (el) {
         el.removeEventListener("click", onCancel);
       });

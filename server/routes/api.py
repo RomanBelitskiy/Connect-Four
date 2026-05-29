@@ -1,20 +1,24 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from pydantic import AliasChoices, BaseModel, Field
+import asyncio
+from server.lobby.helpers import normalize_first_move
 from server.games.registry import normalize_game_type, resolve_game_type
 
 from server.auth import build_display_name, parse_init_data_user, validate_init_data
 from server.avatars import avatar_file_path, public_avatar_url, sync_user_avatar
-from server.bot import fetch_user_photo_url, prepare_lobby_share
+from server.bot import fetch_user_chat_profile, fetch_user_photo_url, prepare_lobby_share
 from server.config import settings
 from server.deps import require_user
 from server.db import format_user, get_user_by_telegram_id, upsert_user
 from server.lobby_store import (
+    ActiveLobbyExistsError,
+    abandon_all_active_lobbies_for_user,
     abandon_lobby_for_replace,
     apply_lobby_move,
-    create_lobby,
+    create_lobby_for_host,
     format_lobby,
-    format_lobby_card,
+    format_lobby_cards,
     forfeit_lobby,
     get_active_lobby_for_user,
     get_leaderboard,
@@ -41,11 +45,13 @@ router = APIRouter()
 
 class TelegramAuthRequest(BaseModel):
     initData: str
+    force: bool = False
 
 
 class CreateLobbyRequest(BaseModel):
     visibility: str = "open"
     hostChipColor: str = "yellow"
+    firstMove: str = "random"
     secondsPerPlayer: int = Field(default=60, ge=15, le=180)
     incrementSeconds: int = Field(default=1, ge=0, le=5)
     gameType: str = Field(
@@ -81,7 +87,7 @@ def health():
 
 
 @router.get("/online")
-def online_count():
+def online_count(user=Depends(require_user)):
     return {"count": max(1, ws_manager.online_count)}
 
 
@@ -101,17 +107,23 @@ async def auth_telegram(body: TelegramAuthRequest):
     if not tg_user or not tg_user.get("id"):
         raise HTTPException(status_code=400, detail="User data not found in initData")
 
-    photo_url = tg_user.get("photo_url")
-    if not photo_url:
-        photo_url = await fetch_user_photo_url(int(tg_user["id"]))
+    telegram_id = int(tg_user["id"])
+    if body.force:
+        fresh = await fetch_user_chat_profile(telegram_id)
+        if fresh:
+            tg_user = {**tg_user, **fresh}
 
-    cached = await sync_user_avatar(int(tg_user["id"]))
+    photo_url = tg_user.get("photo_url")
+    if not photo_url or body.force:
+        photo_url = await fetch_user_photo_url(telegram_id)
+
+    cached = await sync_user_avatar(telegram_id, force=body.force)
     if cached:
         photo_url = cached
 
     row = upsert_user(
         {
-            "telegram_id": int(tg_user["id"]),
+            "telegram_id": telegram_id,
             "username": tg_user.get("username"),
             "first_name": tg_user.get("first_name") or "",
             "last_name": tg_user.get("last_name"),
@@ -124,18 +136,16 @@ async def auth_telegram(body: TelegramAuthRequest):
 
 
 @router.get("/users/me")
-def users_me(telegramId: int = Query(...)):
-    row = get_user_by_telegram_id(telegramId)
-    if not row:
-        raise HTTPException(status_code=404, detail="User not found")
-    return {"user": format_user(row)}
+def users_me(user=Depends(require_user)):
+    return {"user": format_user(user)}
 
 
 @router.get("/lobbies")
-def api_list_lobbies(user=Depends(require_user)):
+async def api_list_lobbies(user=Depends(require_user)):
     uid = int(user["telegram_id"])
-    rows = list_open_lobbies()
-    return {"lobbies": [format_lobby_card(r, viewer_id=uid) for r in rows]}
+    rows = await asyncio.to_thread(list_open_lobbies)
+    cards = await asyncio.to_thread(format_lobby_cards, rows, uid)
+    return {"lobbies": cards}
 
 
 @router.get("/lobbies/mine/active")
@@ -159,26 +169,31 @@ def api_my_spectating_lobby(user=Depends(require_user)):
 @router.post("/lobbies")
 async def api_create_lobby(body: CreateLobbyRequest, user=Depends(require_user)):
     uid = int(user["telegram_id"])
-    existing = get_active_lobby_for_user(uid)
-    if existing and not body.replaceExisting:
-        raise HTTPException(
-            status_code=409,
-            detail={"code": "active_lobby_exists", "lobbyId": str(existing["id"])},
-        )
-    if existing and body.replaceExisting:
-        old_id = abandon_lobby_for_replace(uid)
-        if old_id:
+    closed_ids: list[str] = []
+    if body.replaceExisting:
+        closed_ids = await asyncio.to_thread(abandon_all_active_lobbies_for_user, uid)
+        for old_id in closed_ids:
             await ws_manager.broadcast_lobby(old_id)
+        if closed_ids:
             await ws_manager.broadcast_lobby_feed()
 
-    row = create_lobby(
-        host_id=uid,
-        visibility=body.visibility,
-        host_chip_color=body.hostChipColor,
-        seconds_per_player=body.secondsPerPlayer,
-        increment_seconds=body.incrementSeconds,
-        game_type=normalize_game_type(body.gameType),
-    )
+    try:
+        row = await asyncio.to_thread(
+            create_lobby_for_host,
+            uid,
+            body.visibility,
+            body.hostChipColor,
+            body.secondsPerPlayer,
+            body.incrementSeconds,
+            normalize_game_type(body.gameType),
+            normalize_first_move(body.firstMove),
+            replace_existing=body.replaceExisting,
+        )
+    except ActiveLobbyExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "active_lobby_exists", "lobbyId": exc.lobby_id},
+        ) from exc
     if row.get("visibility") == "open":
         await ws_manager.broadcast_lobby_feed()
     return {"lobby": format_lobby(row, viewer_id=uid)}
@@ -228,9 +243,11 @@ async def api_join_lobby(
                 status_code=409,
                 detail={"code": "active_lobby_exists", "lobbyId": str(existing["id"])},
             )
-        old_id = abandon_lobby_for_replace(uid)
-        if old_id:
+        closed_ids = abandon_all_active_lobbies_for_user(uid)
+        for old_id in closed_ids:
             await ws_manager.broadcast_lobby(old_id)
+        if closed_ids:
+            await ws_manager.broadcast_lobby_feed()
     try:
         row = join_lobby(lobby_id, uid, skip_active_check=True)
     except ValueError as exc:
@@ -278,6 +295,7 @@ async def api_set_ready(lobby_id: str, body: ReadyRequest, user=Depends(require_
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await ws_manager.broadcast_lobby(lobby_id)
+    await ws_manager.broadcast_lobby_feed()
     return {"lobby": format_lobby(row, viewer_id=uid)}
 
 
@@ -289,6 +307,7 @@ async def api_kick_guest(lobby_id: str, user=Depends(require_user)):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await ws_manager.broadcast_lobby(lobby_id)
+    await ws_manager.broadcast_lobby_feed()
     return {"lobby": format_lobby(row, viewer_id=uid)}
 
 
@@ -333,6 +352,7 @@ async def api_forfeit_lobby(lobby_id: str, user=Depends(require_user)):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await ws_manager.broadcast_lobby(lobby_id)
+    await ws_manager.broadcast_lobby_feed()
     return {"lobby": format_lobby(row, viewer_id=int(user["telegram_id"]))}
 
 

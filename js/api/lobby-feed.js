@@ -4,6 +4,8 @@ import { telegramInitData } from "./client.js";
 var socket = null;
 /** @type {(() => void)|null} */
 var onChanged = null;
+/** @type {((rooms: object[]) => void)|null} */
+var onPayload = null;
 /** @type {((open: boolean) => void)|null} */
 var onConnectionChange = null;
 var intentionalDisconnect = false;
@@ -30,10 +32,9 @@ function clearReconnectTimer() {
 
 function scheduleReconnect() {
   if (intentionalDisconnect || !telegramInitData) return;
-  if (reconnectAttempt >= 12) return;
 
   clearReconnectTimer();
-  var delay = Math.min(1000 * Math.pow(1.5, reconnectAttempt), 8000);
+  var delay = Math.min(1000 * Math.pow(1.5, reconnectAttempt), 15000);
   reconnectAttempt += 1;
   reconnectTimer = window.setTimeout(function () {
     if (intentionalDisconnect) return;
@@ -52,12 +53,15 @@ function openFeedSocket() {
   socket.addEventListener("open", function () {
     reconnectAttempt = 0;
     if (typeof onConnectionChange === "function") onConnectionChange(true);
-    if (typeof onChanged === "function") onChanged();
   });
 
   socket.addEventListener("message", function (ev) {
     try {
       var data = JSON.parse(ev.data);
+      if (data.type === "lobbies" && Array.isArray(data.lobbies)) {
+        if (typeof onPayload === "function") onPayload(data.lobbies);
+        return;
+      }
       if (data.type === "lobbies_changed" && typeof onChanged === "function") {
         onChanged();
       }
@@ -81,6 +85,10 @@ export function setLobbyFeedConnectionHandler(handler) {
 
 export function setLobbyFeedHandler(handler) {
   onChanged = typeof handler === "function" ? handler : null;
+}
+
+export function setLobbyFeedPayloadHandler(handler) {
+  onPayload = typeof handler === "function" ? handler : null;
 }
 
 export function connectLobbyFeed() {

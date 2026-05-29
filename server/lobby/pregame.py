@@ -13,6 +13,7 @@ from server.lobby.helpers import (
     _now,
     _opponent_chip_color,
     _reset_grid_for_lobby,
+    resolve_first_turn_id,
 )
 from server.lobby.repository import get_lobby_by_id
 
@@ -117,14 +118,16 @@ def countdown_seconds_remaining(lobby: dict[str, Any]) -> float | None:
 
 
 def _start_match_from_pregame(lobby_id: str, lobby: dict[str, Any]) -> dict[str, Any]:
-    base_sec = int(lobby["seconds_per_player"])
+    fresh = get_lobby_by_id(lobby_id) or lobby
+    base_sec = int(fresh["seconds_per_player"])
+    first_turn_id = resolve_first_turn_id(fresh)
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE lobbies SET
                     status = 'playing',
-                    current_turn_id = host_id,
+                    current_turn_id = %s,
                     host_clock = %s,
                     guest_clock = %s,
                     countdown_at = NULL,
@@ -133,7 +136,7 @@ def _start_match_from_pregame(lobby_id: str, lobby: dict[str, Any]) -> dict[str,
                 WHERE id = %s AND status = 'waiting' AND guest_id IS NOT NULL
                 RETURNING *
                 """,
-                (base_sec, base_sec, lobby_id),
+                (first_turn_id, base_sec, base_sec, lobby_id),
             )
             row = cur.fetchone()
         conn.commit()

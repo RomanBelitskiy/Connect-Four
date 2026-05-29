@@ -1,3 +1,3 @@
 """Backward-compatible re-exports. Implementation: server.lobby.store."""
 
-from server.lobby import *  # noqa: F403
+from server.lobby.store import *  # noqa: F403

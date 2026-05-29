@@ -1,6 +1,7 @@
 import { game, GAME_COLS } from "../game/state.js";
 import { t } from "../i18n/index.js";
 import { getGameDef, usesMarkChips, resolveGameType } from "./index.js";
+import { guestTttMark, hostTttMark, humanTttMark, opponentTttMark } from "../game/match-chips.js";
 import * as connectFour from "./connect-four-board.js";
 import * as infiniteTtt from "./infinite-ttt-board.js";
 
@@ -74,8 +75,7 @@ export function updatePresentation(gameType) {
   var legend = document.querySelector(".game-board__legend");
   if (legend) {
     legend.classList.toggle("game-board__legend--ttt", isTtt);
-    if (isTtt) legend.setAttribute("hidden", "");
-    else legend.removeAttribute("hidden");
+    legend.setAttribute("hidden", "");
   }
 
   var humanDisk = document.getElementById("gameLegendHumanDisk");
@@ -83,8 +83,11 @@ export function updatePresentation(gameType) {
   if (humanDisk) {
     humanDisk.classList.remove("game-board__legend-mark--x", "game-board__legend-mark--o");
     if (isTtt) {
-      humanDisk.classList.add("game-board__legend-mark--x");
-      humanDisk.textContent = game.myRole === "guest" ? "O" : "X";
+      var humanMark = game.myRole === "spectator" ? hostTttMark() : humanTttMark();
+      humanDisk.classList.add(
+        humanMark === "x" ? "game-board__legend-mark--x" : "game-board__legend-mark--o"
+      );
+      humanDisk.textContent = humanMark === "x" ? "X" : "O";
     } else {
       humanDisk.textContent = "";
     }
@@ -92,8 +95,9 @@ export function updatePresentation(gameType) {
   if (oppDisk) {
     oppDisk.classList.remove("game-board__legend-mark--x", "game-board__legend-mark--o");
     if (isTtt) {
-      oppDisk.classList.add("game-board__legend-mark--o");
-      oppDisk.textContent = game.myRole === "guest" ? "X" : "O";
+      var oppMark = game.myRole === "spectator" ? guestTttMark() : opponentTttMark();
+      oppDisk.classList.add(oppMark === "x" ? "game-board__legend-mark--x" : "game-board__legend-mark--o");
+      oppDisk.textContent = oppMark === "x" ? "X" : "O";
     } else {
       oppDisk.textContent = "";
     }

@@ -3,6 +3,11 @@ import { t } from "../i18n/index.js";
 import { submitMove, syncLobby } from "../api/client.js";
 import { notifyLobbyState } from "../api/ws.js";
 import { markOptimisticMove } from "../game/move-guard.js";
+import {
+  chipColorToTttMark,
+  guestChipColorFromGame,
+  hostChipColorFromGame,
+} from "../game/match-chips.js";
 
 var SIZE = 3;
 var CELLS = 9;
@@ -49,11 +54,20 @@ function cloneTttState(state) {
   };
 }
 
-function markSymbol(localMark, myRole) {
-  if (myRole === "guest") {
-    return localMark === "y" ? "O" : "X";
+function tttMarkLetter(color) {
+  return chipColorToTttMark(color) === "x" ? "X" : "O";
+}
+
+function markSymbol(localMark, myRole, serverPiece) {
+  var hostMark = tttMarkLetter(hostChipColorFromGame());
+  var guestMark = tttMarkLetter(guestChipColorFromGame());
+  if (myRole === "spectator") {
+    return serverPiece === "h" ? hostMark : guestMark;
   }
-  return localMark === "y" ? "X" : "O";
+  if (myRole === "guest") {
+    return localMark === "y" ? guestMark : hostMark;
+  }
+  return localMark === "y" ? hostMark : guestMark;
 }
 
 function serverPieceForLocal(localMark, myRole) {
@@ -139,7 +153,7 @@ function updateTttCellButton(btn, cellIdx, state, myRole) {
   if (mark) {
     var serverPiece = serverPieceForLocal(mark, myRole);
     var fading = fadingCellIndex(state, serverPiece) === cellIdx;
-    btn.appendChild(createMarkSvg(markSymbol(mark, myRole), fading));
+    btn.appendChild(createMarkSvg(markSymbol(mark, myRole, serverPiece), fading));
   }
   btn.disabled =
     !!mark || !isHumanTurn() || !game.matchActive || game.matchFinished || game.waiting;
@@ -197,8 +211,8 @@ export function renderBoard() {
 
     var mark = state.cells[i];
     if (mark) {
-      var symbol = markSymbol(mark, myRole);
       var serverPiece = serverPieceForLocal(mark, myRole);
+      var symbol = markSymbol(mark, myRole, serverPiece);
       var fading = fadingCellIndex(state, serverPiece) === i;
       btn.appendChild(createMarkSvg(symbol, fading));
     }

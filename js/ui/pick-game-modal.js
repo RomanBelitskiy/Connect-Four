@@ -30,8 +30,11 @@ function selectGame(gameType) {
   setPendingGameType(gameType);
   var hidden = document.getElementById("lobbyGameType");
   if (hidden) hidden.value = pendingGameType;
-  closePickGameModal();
-  openCreateLobbyModal(pendingGameType);
+  closeModal(getPickGameModal(), null, {
+    onClosed: function () {
+      openCreateLobbyModal(pendingGameType);
+    },
+  });
 }
 
 export function bindPickGameModal() {

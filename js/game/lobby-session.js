@@ -33,6 +33,8 @@ import { isPregameLobbyDelta, updatePregameLobby, stopPregameUi } from "./pregam
 import { resetPregameLobbySnapshot } from "./pregame-snapshot.js";
 import { game } from "./state.js";
 import { isStalePlayingLobby } from "./move-guard.js";
+import { refreshClocksOnResume, stopGameClock } from "./match-clock.js";
+import { refreshCountdownOnResume } from "./pregame/countdown.js";
 
 /** @type {object|null} */
 var activeLobby = null;
@@ -367,7 +369,7 @@ export async function leaveSpectatorById(lobbyId) {
     resetLocalMatch();
     ensureLobbyTab();
   }
-  refreshLobbies();
+  refreshLobbies({ force: true });
 }
 
 export async function joinLobbyByInviteCode(code) {
@@ -398,6 +400,51 @@ export async function joinLobbyByInviteCode(code) {
   }
 
   return spectateLobbyById(info.id);
+}
+
+function isLobbyFullError(err) {
+  if (!err) return false;
+  var msg = err.message || String(err);
+  return (
+    msg === "Lobby is full" ||
+    msg === "Кімната вже зайнята або завершена" ||
+    msg === "Кімната вже зайнята"
+  );
+}
+
+/**
+ * Відкриває кімнату зі списку лобі: Join — як гість, інакше — глядач.
+ * Якщо місце вже зайняли (гонка), оновлює список і відкриває як глядач.
+ */
+export async function openLobbyFromList(lobbyId, canJoinAsGuest) {
+  var existing = await fetchActiveLobby();
+  if (existing && String(existing.id) !== String(lobbyId)) {
+    var ok = await confirmReplaceLobby({ mode: "join" });
+    if (!ok) return null;
+    await leaveActiveLobby(existing.id);
+    if (canJoinAsGuest) {
+      try {
+        return await joinLobbyById(lobbyId, { skipActiveCheck: true, replaceExisting: true });
+      } catch (err) {
+        if (!isLobbyFullError(err)) throw err;
+        await refreshLobbies({ force: true });
+        return spectateLobbyById(lobbyId, { skipActiveCheck: true, replaceExisting: true });
+      }
+    }
+    return spectateLobbyById(lobbyId, { skipActiveCheck: true, replaceExisting: true });
+  }
+
+  if (canJoinAsGuest) {
+    try {
+      return await joinLobbyById(lobbyId);
+    } catch (err) {
+      if (!isLobbyFullError(err)) throw err;
+      await refreshLobbies({ force: true });
+      return spectateLobbyById(lobbyId);
+    }
+  }
+
+  return spectateLobbyById(lobbyId);
 }
 
 export async function leaveActiveLobby(lobbyId) {
@@ -482,10 +529,14 @@ export function initLobbySession() {
 
   document.addEventListener("visibilitychange", function () {
     if (document.visibilityState !== "visible") return;
+    refreshCountdownOnResume();
     var gameEl = document.getElementById("view-game");
     if (!gameEl || gameEl.hasAttribute("hidden")) return;
     if (game.lobbyId && game.matchActive && !game.matchFinished) {
-      fetchLobby(game.lobbyId)
+      stopGameClock();
+      refreshClocksOnResume();
+      var syncFn = game.myRole === "spectator" ? fetchLobby : syncLobby;
+      syncFn(game.lobbyId)
         .then(function (lobby) {
           if (lobby) handleServerLobby(lobby);
         })

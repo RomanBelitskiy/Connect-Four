@@ -70,10 +70,6 @@
         <div class="app-header__brand">
           <span class="app-title" data-i18n="app.title">Mini Games</span>
         </div>
-        <div class="app-header__format" id="headerGameFormat" hidden>
-          <span class="app-header__format-label" data-i18n="game.format">Format</span>
-          <span class="app-header__format-value" id="gameMatchMeta">—</span>
-        </div>
       </header>
 
       <main class="app-main">
@@ -87,19 +83,10 @@
           <header class="lobby-intro">
             <p class="lobby-intro__pulse"><span data-i18n="lobby.playersOnline">Players online:</span> <span id="lobbyOnlineCount">—</span></p>
             <h1 class="lobby-intro__title view__title" id="lobby-heading" data-i18n="lobby.title">Lobby</h1>
-            <p class="lobby-intro__tagline" data-i18n="lobby.tagline">Four in a row — create a table or join a match.</p>
+            <p class="lobby-intro__tagline" data-i18n="lobby.tagline">Choose a game — create a lobby or join a match.</p>
           </header>
 
           <article class="game-hub-card">
-            <div class="game-hub-card__rack" aria-hidden="true">
-              <div class="modal__rack-inner">
-                <span class="modal__rack-disk modal__rack-disk--red"></span>
-                <span class="modal__rack-disk modal__rack-disk--accent"></span>
-                <span class="modal__rack-disk modal__rack-disk--hole"></span>
-                <span class="modal__rack-disk modal__rack-disk--red"></span>
-                <span class="modal__rack-disk modal__rack-disk--accent"></span>
-              </div>
-            </div>
             <div class="game-hub-card__panel">
               <p class="game-hub-card__eyebrow" data-i18n="lobby.quickMatch">Quick match</p>
               <h2 class="game-hub-card__heading" data-i18n="lobby.createHeading">Start your game</h2>
@@ -117,7 +104,7 @@
 
         <!-- Profile -->
         <section
-          class="view"
+          class="view view--profile"
           id="view-profile"
           data-view="profile"
           aria-labelledby="profile-heading"
@@ -160,6 +147,14 @@
               >
                 ?
               </div>
+              <button
+                type="button"
+                class="profile-refresh-btn"
+                id="btnProfileRefresh"
+                data-i18n-aria="profile.refresh"
+              >
+                <span class="profile-refresh-btn__icon" aria-hidden="true"></span>
+              </button>
             </div>
             <div class="profile-hero__info">
               <h2 class="profile-hero__name" id="profileName">Player</h2>
@@ -182,7 +177,7 @@
             </div>
           </article>
 
-          <h3 class="section-label" data-i18n="profile.history">Match history</h3>
+          <h3 class="section-label section-label--lobby" data-i18n="profile.history">Match history</h3>
           <ul class="history-list" id="historyList">
             <!-- filled by JS -->
           </ul>
@@ -216,6 +211,7 @@
               <div class="game-screen__brand">
                 <p class="game-screen__eyebrow" data-i18n="game.yourMatch">Your match</p>
                 <h1 class="game-screen__title" id="game-heading" data-i18n="game.title">Four in a row</h1>
+                <p class="game-screen__meta" id="gameMatchMeta" hidden>—</p>
               </div>
               <p class="game-screen__spectators" id="gameSpectatorBar" hidden>
                 <span class="game-screen__spectators-label" data-i18n="game.spectators">Spectators</span>
@@ -242,16 +238,6 @@
               </div>
 
               <div class="game-board-shell">
-                <div class="game-board__legend" aria-hidden="true">
-                  <span class="game-board__legend-disk game-board__legend-disk--yellow" id="gameLegendHumanDisk"></span>
-                  <span data-i18n="game.legendYou">you</span>
-                  <span class="game-board__legend-sep">·</span>
-                  <span
-                    class="game-board__legend-disk game-board__legend-disk--chip-red"
-                    id="gameLegendOppDisk"
-                  ></span>
-                  <span data-i18n="game.legendOpponent">opponent</span>
-                </div>
                 <div class="game-board__frame">
                   <div class="game-board" id="gameBoard" role="group" data-i18n-aria="game.boardAria"></div>
                 </div>
@@ -431,7 +417,7 @@
             <footer class="game-screen__footer">
               <div class="game-turn game-turn--disk-yellow" id="gameTurnBanner">
                 <span class="game-turn__disk" aria-hidden="true"></span>
-                <p class="game-turn__text" id="gameTurnLabel">Your turn — yellow discs</p>
+                <p class="game-turn__text" id="gameTurnLabel" data-i18n="game.turnYellow">Your turn</p>
               </div>
               <button
                 type="button"
@@ -553,22 +539,6 @@
         aria-labelledby="createLobbyTitle"
       >
         <header class="modal__header modal__header--game">
-          <button
-            type="button"
-            class="modal__back-btn"
-            id="btnCreateLobbyBack"
-            data-i18n-aria="create.backToGames"
-          >
-            <svg class="modal__back-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path
-                d="M15 18l-6-6 6-6"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </button>
           <div class="modal__header-text">
             <p class="modal__eyebrow" id="createLobbyGameLabel" data-i18n="game.connectFour">Connect Four</p>
             <h2 class="modal__title" id="createLobbyTitle" data-i18n="create.title">Lobby settings</h2>
@@ -584,15 +554,6 @@
             </svg>
           </button>
         </header>
-        <div class="modal__rack" aria-hidden="true">
-          <div class="modal__rack-inner">
-            <span class="modal__rack-disk modal__rack-disk--red"></span>
-            <span class="modal__rack-disk modal__rack-disk--accent"></span>
-            <span class="modal__rack-disk modal__rack-disk--hole"></span>
-            <span class="modal__rack-disk modal__rack-disk--red"></span>
-            <span class="modal__rack-disk modal__rack-disk--accent"></span>
-          </div>
-        </div>
         <div class="modal__body modal__body--game">
           <div class="modal-row">
             <div class="modal-row__text">
@@ -671,6 +632,66 @@
                   data-value="red"
                   data-i18n-aria="create.chipRed"
                 ></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-row modal-row--interactive">
+            <div class="modal-row__text">
+              <span class="modal-row__title" data-i18n="create.firstMoveTitle">First move</span>
+              <span class="modal-row__subtitle" data-i18n="create.firstMoveSub">Who plays the opening move</span>
+            </div>
+            <div class="modal-row__control">
+              <div class="fake-select" data-fake-select data-fake-select-flip="up" id="createLobbyFirstMoveSelect">
+                <input type="hidden" id="lobbyFirstMove" value="random" />
+                <button
+                  type="button"
+                  class="fake-select__trigger"
+                  aria-expanded="false"
+                  aria-haspopup="listbox"
+                >
+                  <span class="fake-select__value" data-first-move-value="random">Random</span>
+                  <svg class="fake-select__caret" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M6 9l6 6 6-6"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                </button>
+                <ul class="fake-select__list" role="listbox" hidden>
+                  <li
+                    role="option"
+                    tabindex="-1"
+                    data-value="random"
+                    data-first-move-value="random"
+                    class="is-selected"
+                    aria-selected="true"
+                    data-i18n="create.firstMoveRandom"
+                  >
+                    Random
+                  </li>
+                  <li
+                    role="option"
+                    tabindex="-1"
+                    data-value="host"
+                    data-first-move-value="host"
+                    data-i18n="create.firstMoveMe"
+                  >
+                    Me
+                  </li>
+                  <li
+                    role="option"
+                    tabindex="-1"
+                    data-value="guest"
+                    data-first-move-value="guest"
+                    data-i18n="create.firstMoveOpponent"
+                  >
+                    Opponent
+                  </li>
+                </ul>
               </div>
             </div>
           </div>
@@ -862,24 +883,42 @@
           </button>
         </header>
         <div class="modal__body modal__body--game">
-          <div class="modal-row">
-            <div class="modal-row__text">
-              <span class="modal-row__title" data-i18n="settings.musicTitle">Music</span>
-              <span class="modal-row__subtitle" data-i18n="settings.musicSub">Background track while playing</span>
+          <div class="modal-row modal-row--music" id="settingsMusicRow">
+            <div class="modal-row__music-head">
+              <div class="modal-row__text">
+                <span class="modal-row__title" data-i18n="settings.musicTitle">Music</span>
+                <span class="modal-row__subtitle" data-i18n="settings.musicSub">Background track while playing</span>
+              </div>
+              <div class="modal-row__control">
+                <label class="toggle-switch">
+                  <input
+                    type="checkbox"
+                    class="toggle-switch__input"
+                    id="settingsMusicToggle"
+                    role="switch"
+                    data-i18n-aria="settings.musicAria"
+                  />
+                  <span class="toggle-switch__track" aria-hidden="true">
+                    <span class="toggle-switch__thumb"></span>
+                  </span>
+                </label>
+              </div>
             </div>
-            <div class="modal-row__control">
-              <label class="toggle-switch">
-                <input
-                  type="checkbox"
-                  class="toggle-switch__input"
-                  id="settingsMusicToggle"
-                  role="switch"
-                  data-i18n-aria="settings.musicAria"
-                />
-                <span class="toggle-switch__track" aria-hidden="true">
-                  <span class="toggle-switch__thumb"></span>
-                </span>
-              </label>
+            <div class="modal-row__music-volume">
+              <div class="modal-row__music-volume-label">
+                <span class="modal-row__music-volume-title" data-i18n="settings.musicVolumeTitle">Volume</span>
+                <span class="modal-row__music-volume-value" id="settingsMusicVolumeValue" aria-live="polite">70%</span>
+              </div>
+              <input
+                type="range"
+                class="volume-slider"
+                id="settingsMusicVolume"
+                min="0"
+                max="100"
+                step="5"
+                value="70"
+                data-i18n-aria="settings.musicVolumeAria"
+              />
             </div>
           </div>
 

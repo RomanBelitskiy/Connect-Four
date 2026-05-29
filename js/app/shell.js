@@ -1,7 +1,7 @@
 import { initialFrom } from "../utils/format.js";
 import { avatarHtml, applyAvatarElement } from "../utils/avatar.js";
-import { fetchHistory, fetchLeaderboard, fetchOnlineCount } from "../api/client.js";
-import { renderLobbies, scheduleLobbyListRefresh, flushLobbyListRefresh, invalidateLobbyListCache } from "./lobby-list.js";
+import { fetchHistory, fetchLeaderboard, fetchOnlineCount, hasTelegramInitData } from "../api/client.js";
+import { renderLobbies, scheduleLobbyListRefresh, flushLobbyListRefresh, invalidateLobbyListCache, syncLobbyListFromCache } from "./lobby-list.js";
 import { isLobbyFeedOpen, setLobbyFeedConnectionHandler } from "../api/lobby-feed.js";
 import { game } from "../game/state.js";
 import { initTelegramApp } from "./telegram.js";
@@ -28,21 +28,31 @@ function renderEmptyList(list, message) {
 export async function refreshOnlineCount() {
   var el = document.getElementById("lobbyOnlineCount");
   if (!el) return;
+  if (!hasTelegramInitData()) {
+    el.textContent = "—";
+    return;
+  }
   try {
     var count = await fetchOnlineCount();
-    el.textContent = String(count);
+    el.textContent = count == null ? "—" : String(count);
   } catch (_e) {
-    el.textContent = "1";
+    el.textContent = "—";
   }
 }
 
-export { renderLobbies, flushLobbyListRefresh as refreshLobbies };
+export { renderLobbies, flushLobbyListRefresh as refreshLobbies, syncLobbyListFromCache };
+
+/** Показує вкладку Lobby: спочатку кеш, потім свіжий fetch. */
+export function showLobbyList() {
+  syncLobbyListFromCache();
+  return flushLobbyListRefresh({ force: true });
+}
 
 var lobbyPollTimer = null;
-/** Рідкий fallback, коли WS живий. */
-var LOBBY_POLL_WS_OPEN_MS = 25000;
+/** Рідкий fallback, коли WS живий (snapshot приходить по WS). */
+var LOBBY_POLL_WS_OPEN_MS = 45000;
 /** Частіший poll без WS. */
-var LOBBY_POLL_WS_DOWN_MS = 5000;
+var LOBBY_POLL_WS_DOWN_MS = 8000;
 
 function isLobbyViewVisible() {
   var lobbyView = document.getElementById("view-lobby");
@@ -50,7 +60,7 @@ function isLobbyViewVisible() {
 }
 
 export function refreshLobbiesIfVisible() {
-  if (!isLobbyViewVisible()) return;
+  if (!hasTelegramInitData() || !isLobbyViewVisible()) return;
   if (isLobbyFeedOpen()) {
     scheduleLobbyListRefresh();
   } else {
@@ -63,12 +73,14 @@ function pollIntervalMs() {
 }
 
 function scheduleNextPoll() {
+  if (!hasTelegramInitData()) return;
   if (lobbyPollTimer) {
     clearTimeout(lobbyPollTimer);
     lobbyPollTimer = null;
   }
   lobbyPollTimer = window.setTimeout(function () {
     lobbyPollTimer = null;
+    if (!hasTelegramInitData()) return;
     if (isLobbyViewVisible()) {
       if (isLobbyFeedOpen()) {
         scheduleLobbyListRefresh();
@@ -81,6 +93,7 @@ function scheduleNextPoll() {
 }
 
 export function startLobbyListPolling() {
+  if (!hasTelegramInitData()) return;
   setLobbyFeedConnectionHandler(function () {
     scheduleNextPoll();
     if (isLobbyViewVisible()) {
@@ -137,7 +150,9 @@ export async function renderHistory() {
           "</span>" +
           "<div>" +
           '<p class="history-row__title">' +
-          row.opponent +
+          t("profile.historyAgainst", {
+            name: row.opponentLabel || row.opponent || "",
+          }) +
           "</p>" +
           '<p class="history-row__meta">' +
           meta +
@@ -211,6 +226,7 @@ export async function renderLeaderboard() {
 }
 
 export async function refreshAllData() {
+  if (!hasTelegramInitData()) return;
   await Promise.all([
     refreshOnlineCount(),
     renderLobbies(),

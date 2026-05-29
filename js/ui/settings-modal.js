@@ -1,20 +1,97 @@
 import { t, setLanguage, getLanguage } from "../i18n/index.js";
 import { setLanguageSetting } from "../app/settings.js";
-import { setMusicEnabled, isMusicEnabled } from "../app/music.js";
+import { setMusicEnabled, isMusicEnabled, getMusicVolume, setMusicVolume } from "../app/music.js";
+import { closeModal, openModal } from "./modal-utils.js";
 
 function getSettingsModal() {
   return document.getElementById("settingsModal");
+}
+
+var MUSIC_UI_MS = 280;
+
+/** @type {number} */
+var musicVolumeAnimId = 0;
+
+function formatVolumePercent(volume) {
+  return Math.round(Math.min(1, Math.max(0, volume)) * 100) + "%";
+}
+
+function cancelMusicVolumeAnimation() {
+  if (musicVolumeAnimId) {
+    cancelAnimationFrame(musicVolumeAnimId);
+    musicVolumeAnimId = 0;
+  }
+}
+
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+/**
+ * @param {number} targetPct
+ * @param {number} durationMs
+ * @param {(() => void)|undefined} onDone
+ */
+function animateMusicVolumeSlider(targetPct, durationMs, onDone) {
+  var slider = document.getElementById("settingsMusicVolume");
+  var valueEl = document.getElementById("settingsMusicVolumeValue");
+  if (!slider) {
+    if (onDone) onDone();
+    return;
+  }
+
+  cancelMusicVolumeAnimation();
+  var startPct = parseInt(slider.value, 10);
+  if (Number.isNaN(startPct)) startPct = 0;
+  if (startPct === targetPct) {
+    slider.value = String(targetPct);
+    if (valueEl) valueEl.textContent = targetPct + "%";
+    if (onDone) onDone();
+    return;
+  }
+
+  var startTime = performance.now();
+
+  function frame(now) {
+    var t = Math.min(1, (now - startTime) / durationMs);
+    var pct = Math.round(startPct + (targetPct - startPct) * easeOutCubic(t));
+    slider.value = String(pct);
+    if (valueEl) valueEl.textContent = pct + "%";
+    if (t < 1) {
+      musicVolumeAnimId = requestAnimationFrame(frame);
+      return;
+    }
+    musicVolumeAnimId = 0;
+    slider.value = String(targetPct);
+    if (valueEl) valueEl.textContent = targetPct + "%";
+    if (onDone) onDone();
+  }
+
+  musicVolumeAnimId = requestAnimationFrame(frame);
+}
+
+function syncMusicVolumeUi() {
+  cancelMusicVolumeAnimation();
+  var slider = document.getElementById("settingsMusicVolume");
+  var valueEl = document.getElementById("settingsMusicVolumeValue");
+  var musicToggle = document.getElementById("settingsMusicToggle");
+  var enabled = isMusicEnabled();
+  var volume = enabled ? getMusicVolume() : 0;
+  var pct = Math.round(volume * 100);
+
+  if (slider) slider.value = String(pct);
+  if (valueEl) valueEl.textContent = formatVolumePercent(volume);
+  if (musicToggle) {
+    musicToggle.checked = enabled;
+    musicToggle.setAttribute("aria-checked", enabled ? "true" : "false");
+  }
 }
 
 function syncSettingsModalUi() {
   var modal = getSettingsModal();
   if (!modal) return;
 
-  var musicToggle = document.getElementById("settingsMusicToggle");
-  if (musicToggle) {
-    musicToggle.checked = isMusicEnabled();
-    musicToggle.setAttribute("aria-checked", musicToggle.checked ? "true" : "false");
-  }
+  syncMusicVolumeUi();
 
   var lang = getLanguage();
   modal.querySelectorAll('.segmented__btn[data-segment="language"]').forEach(function (btn) {
@@ -32,19 +109,14 @@ export function openSettingsModal() {
   var modal = getSettingsModal();
   if (!modal) return;
   syncSettingsModalUi();
-  modal.removeAttribute("hidden");
-  var closeBtn = modal.querySelector(".modal__close-btn");
-  if (closeBtn) closeBtn.focus();
-  document.documentElement.style.overflow = "hidden";
+  openModal(modal);
 }
 
 function closeSettingsModal() {
   var modal = getSettingsModal();
   if (!modal) return;
-  modal.setAttribute("hidden", "");
-  document.documentElement.style.overflow = "";
   var opener = document.getElementById("btnOpenSettings");
-  if (opener) opener.focus();
+  closeModal(modal, opener);
 }
 
 export function bindSettingsModal() {
@@ -64,7 +136,26 @@ export function bindSettingsModal() {
     musicToggle.addEventListener("change", function () {
       var enabled = musicToggle.checked;
       musicToggle.setAttribute("aria-checked", enabled ? "true" : "false");
-      setMusicEnabled(enabled, { immediate: enabled });
+
+      if (enabled) {
+        setMusicEnabled(true, { immediate: true });
+        var targetPct = Math.round(getMusicVolume() * 100);
+        animateMusicVolumeSlider(targetPct, MUSIC_UI_MS, syncMusicVolumeUi);
+      } else {
+        setMusicEnabled(false);
+        animateMusicVolumeSlider(0, MUSIC_UI_MS, syncMusicVolumeUi);
+      }
+    });
+  }
+
+  var volumeSlider = document.getElementById("settingsMusicVolume");
+  if (volumeSlider) {
+    volumeSlider.addEventListener("input", function () {
+      var pct = parseInt(volumeSlider.value, 10);
+      if (Number.isNaN(pct)) return;
+
+      setMusicVolume(pct / 100);
+      syncMusicVolumeUi();
     });
   }
 

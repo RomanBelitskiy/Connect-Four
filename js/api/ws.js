@@ -33,7 +33,7 @@ function clearReconnectTimer() {
 }
 
 function scheduleReconnect(lobbyId) {
-  if (intentionalDisconnect || currentLobbyId !== lobbyId) return;
+  if (intentionalDisconnect || !telegramInitData || currentLobbyId !== lobbyId) return;
   if (reconnectAttempt >= 12) return;
 
   clearReconnectTimer();
@@ -46,6 +46,7 @@ function scheduleReconnect(lobbyId) {
 }
 
 function openSocket(lobbyId) {
+  if (!telegramInitData) return;
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
     return;
   }
@@ -99,6 +100,7 @@ export function notifyLobbyState(lobby) {
 }
 
 export function connectLobbySocket(lobbyId) {
+  if (!telegramInitData) return;
   intentionalDisconnect = false;
   reconnectAttempt = 0;
   clearReconnectTimer();

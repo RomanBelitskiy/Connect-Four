@@ -4,8 +4,20 @@ import { t } from "../i18n/index.js";
 import { gameLabelKey } from "../games/index.js";
 
 var lastRoomsSignature = "";
+/** @type {object[]|null} */
+var cachedRooms = null;
 var fetchInFlight = null;
 var refreshDebounceId = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
+
+function isLobbyViewVisible() {
+  var lobbyView = document.getElementById("view-lobby");
+  return !!(lobbyView && !lobbyView.hasAttribute("hidden"));
+}
+
+function maybeSyncDom() {
+  if (!isLobbyViewVisible() || cachedRooms === null) return false;
+  return applyRoomsToDom(cachedRooms);
+}
 
 function roomSignature(rooms) {
   return rooms
@@ -17,7 +29,12 @@ function roomSignature(rooms) {
         r.spectatorCount,
         r.timeLabel,
         r.gameType,
-        r.title,
+        r.hostName || "",
+        r.guestName || "",
+        r.hasGuest ? 1 : 0,
+        r.canJoinAsGuest ? 1 : 0,
+        r.hostPhotoUrl || "",
+        r.guestPhotoUrl || "",
       ].join(":");
     })
     .join("|");
@@ -27,9 +44,18 @@ function statusTextFor(room) {
   var statusKey = room.statusKey || "waiting_player";
   var statusText = t("lobby.status." + statusKey);
   if (!statusText || statusText.indexOf("lobby.status.") === 0) {
-    statusText = room.isMine ? t("lobby.roomMine") : t("lobby.roomOpen");
+    statusText = t("lobby.status.waiting_player");
   }
   return statusText;
+}
+
+function playerName(name) {
+  return name || t("profile.player");
+}
+
+function guestSlotName(room) {
+  if (room.hasGuest) return playerName(room.guestName);
+  return t("lobby.slotOpen");
 }
 
 function viewersHtml(count) {
@@ -46,74 +72,227 @@ function viewersHtml(count) {
   );
 }
 
+function statusBadgeHtml(room) {
+  var statusKey = room.statusKey || "waiting_player";
+  return (
+    '<span class="lobby-card__badge lobby-card__badge--' +
+    statusKey +
+    '">' +
+    '<span class="lobby-card__badge-text">' +
+    statusTextFor(room) +
+    "</span>" +
+    viewersHtml(room.spectatorCount) +
+    "</span>"
+  );
+}
+
+function actionLabelFor(room) {
+  if (room.isMine) return t("lobby.actionYou");
+  if (room.canJoinAsGuest) return t("lobby.actionJoin");
+  return t("lobby.actionWatch");
+}
+
+function actionClassFor(room) {
+  if (room.isMine) return "lobby-card__join-btn--mine";
+  if (room.canJoinAsGuest) return "lobby-card__join-btn--join";
+  return "lobby-card__join-btn--watch";
+}
+
+function cardAriaLabel(room) {
+  return (
+    t(gameLabelKey(room.gameType)) +
+    ", " +
+    playerName(room.hostName) +
+    " " +
+    t("lobby.vs") +
+    " " +
+    guestSlotName(room)
+  );
+}
+
+function duelAvatarHtml(room, role) {
+  if (role === "guest" && !room.hasGuest) {
+    return (
+      '<span class="lobby-card__initial lobby-card__initial--open" aria-hidden="true">' +
+      t("lobby.openSlot") +
+      "</span>"
+    );
+  }
+
+  var isGuest = role === "guest";
+  return avatarHtml({
+    baseClass: "lobby-card__initial",
+    displayName: isGuest ? room.guestName : room.hostName,
+    photoUrl: isGuest ? room.guestPhotoUrl : room.hostPhotoUrl,
+  });
+}
+
+function buildDuelPlayerElement(room, role) {
+  var wrap = document.createElement("div");
+  wrap.className = "lobby-card__duel-player lobby-card__duel-player--" + role;
+  if (role === "guest" && !room.hasGuest) {
+    wrap.classList.add("lobby-card__duel-player--empty");
+  }
+
+  var headRow = document.createElement("span");
+  if (role === "host") {
+    headRow.className = "lobby-card__duel-head lobby-card__duel-head--game";
+    headRow.textContent = t(gameLabelKey(room.gameType));
+  } else {
+    headRow.className = "lobby-card__duel-head lobby-card__duel-head--time";
+    headRow.textContent = room.timeLabel;
+  }
+
+  var avatarWrap = document.createElement("div");
+  avatarWrap.className = "lobby-card__duel-avatar";
+  avatarWrap.innerHTML = duelAvatarHtml(room, role);
+
+  var name = document.createElement("span");
+  name.className = "lobby-card__duel-name";
+  if (role === "guest" && !room.hasGuest) {
+    name.classList.add("lobby-card__duel-name--open");
+  }
+  name.textContent = role === "host" ? playerName(room.hostName) : guestSlotName(room);
+
+  wrap.appendChild(headRow);
+  wrap.appendChild(avatarWrap);
+  wrap.appendChild(name);
+  return wrap;
+}
+
+function buildDuelElement(room) {
+  var duel = document.createElement("div");
+  duel.className = "lobby-card__duel";
+
+  var vs = document.createElement("span");
+  vs.className = "lobby-card__duel-vs";
+  vs.setAttribute("aria-hidden", "true");
+  vs.textContent = t("lobby.vs");
+
+  duel.appendChild(buildDuelPlayerElement(room, "host"));
+  duel.appendChild(vs);
+  duel.appendChild(buildDuelPlayerElement(room, "guest"));
+  return duel;
+}
+
+function buildMatchupElement(room) {
+  var matchup = document.createElement("div");
+  matchup.className = "lobby-card__matchup";
+  matchup.appendChild(buildDuelElement(room));
+  return matchup;
+}
+
+function buildJoinButtonElement(room) {
+  var btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "lobby-card__join-btn " + actionClassFor(room);
+  btn.setAttribute("aria-label", actionLabelFor(room));
+  btn.innerHTML =
+    '<span class="lobby-card__join-icon" aria-hidden="true">\u2197</span>' +
+    '<span class="lobby-card__join-text">' +
+    actionLabelFor(room) +
+    "</span>";
+  return btn;
+}
+
+function updateDuelElement(duel, room) {
+  if (!duel) return;
+
+  var host = duel.querySelector(".lobby-card__duel-player--host");
+  var guest = duel.querySelector(".lobby-card__duel-player--guest");
+
+  if (host) {
+    var hostHead = host.querySelector(".lobby-card__duel-head--game");
+    var hostAvatar = host.querySelector(".lobby-card__duel-avatar");
+    var hostName = host.querySelector(".lobby-card__duel-name");
+    if (hostHead) hostHead.textContent = t(gameLabelKey(room.gameType));
+    if (hostAvatar) hostAvatar.innerHTML = duelAvatarHtml(room, "host");
+    if (hostName) hostName.textContent = playerName(room.hostName);
+  }
+
+  if (guest) {
+    guest.classList.toggle("lobby-card__duel-player--empty", !room.hasGuest);
+    var guestHead = guest.querySelector(".lobby-card__duel-head--time");
+    var guestAvatar = guest.querySelector(".lobby-card__duel-avatar");
+    var guestName = guest.querySelector(".lobby-card__duel-name");
+    if (guestHead) guestHead.textContent = room.timeLabel;
+    if (guestAvatar) guestAvatar.innerHTML = duelAvatarHtml(room, "guest");
+    if (guestName) {
+      guestName.classList.toggle("lobby-card__duel-name--open", !room.hasGuest);
+      guestName.textContent = guestSlotName(room);
+    }
+  }
+}
+
 function buildCardElement(room) {
   var li = document.createElement("li");
   li.className = "lobby-card" + (room.isMine ? " lobby-card--mine" : "");
   li.setAttribute("data-id", room.id);
   li.setAttribute("data-mine", room.isMine ? "1" : "0");
+  li.setAttribute("data-can-join", room.canJoinAsGuest ? "1" : "0");
+  li.setAttribute("aria-label", cardAriaLabel(room));
 
-  var avatar = document.createElement("div");
-  avatar.innerHTML = avatarHtml({
-    baseClass: "lobby-card__initial",
-    displayName: room.hostName,
-    photoUrl: room.hostPhotoUrl,
-  });
-  while (avatar.firstChild) li.appendChild(avatar.firstChild);
+  li.appendChild(buildMatchupElement(room));
 
-  var body = document.createElement("div");
-  body.className = "lobby-card__body";
-  var title = document.createElement("p");
-  title.className = "lobby-card__title";
-  title.textContent = room.title;
-  var meta = document.createElement("p");
-  meta.className = "lobby-card__meta";
-  meta.innerHTML =
-    t(gameLabelKey(room.gameType)) + " · " + statusTextFor(room) + viewersHtml(room.spectatorCount);
-  body.appendChild(title);
-  body.appendChild(meta);
+  var aside = document.createElement("div");
+  aside.className = "lobby-card__aside";
 
-  var side = document.createElement("div");
-  side.className = "lobby-card__side";
-  var time = document.createElement("span");
-  time.className = "lobby-card__time";
-  time.textContent = room.timeLabel;
-  var action = document.createElement("span");
-  action.className = "lobby-card__action-label pct-up";
-  action.setAttribute("aria-hidden", "true");
-  action.textContent = "\u2197 " + (room.isMine ? t("lobby.actionYou") : t("lobby.actionJoin"));
-  side.appendChild(time);
-  side.appendChild(action);
+  var badgeWrap = document.createElement("div");
+  badgeWrap.className = "lobby-card__badge-wrap";
+  badgeWrap.innerHTML = statusBadgeHtml(room);
 
-  li.appendChild(body);
-  li.appendChild(side);
+  aside.appendChild(badgeWrap);
+  aside.appendChild(buildJoinButtonElement(room));
+
+  li.appendChild(aside);
   return li;
 }
 
 function updateCardElement(li, room) {
-  var title = li.querySelector(".lobby-card__title");
-  var meta = li.querySelector(".lobby-card__meta");
-  var time = li.querySelector(".lobby-card__time");
-  var action = li.querySelector(".lobby-card__action-label");
+  var gameHead = li.querySelector(".lobby-card__duel-player--host .lobby-card__duel-head--game");
+  var timeHead = li.querySelector(".lobby-card__duel-player--guest .lobby-card__duel-head--time");
+  var badgeWrap = li.querySelector(".lobby-card__badge-wrap");
+  var joinBtn = li.querySelector(".lobby-card__join-btn");
 
-  if (title && title.textContent !== room.title) title.textContent = room.title;
-  if (time && time.textContent !== room.timeLabel) time.textContent = room.timeLabel;
-  if (action) {
-    var actionText = "\u2197 " + (room.isMine ? t("lobby.actionYou") : t("lobby.actionJoin"));
-    if (action.textContent !== actionText) action.textContent = actionText;
+  updateDuelElement(li.querySelector(".lobby-card__duel"), room);
+  li.setAttribute("aria-label", cardAriaLabel(room));
+
+  var gameText = t(gameLabelKey(room.gameType));
+  if (gameHead && gameHead.textContent !== gameText) gameHead.textContent = gameText;
+  if (timeHead && timeHead.textContent !== room.timeLabel) timeHead.textContent = room.timeLabel;
+  if (badgeWrap) {
+    var nextBadge = statusBadgeHtml(room);
+    if (badgeWrap.innerHTML !== nextBadge) badgeWrap.innerHTML = nextBadge;
   }
-  if (meta) {
-    var metaHtml =
-      t(gameLabelKey(room.gameType)) + " · " + statusTextFor(room) + viewersHtml(room.spectatorCount);
-    if (meta.innerHTML !== metaHtml) meta.innerHTML = metaHtml;
+  if (joinBtn) {
+    var nextClass = "lobby-card__join-btn " + actionClassFor(room);
+    if (joinBtn.className !== nextClass) joinBtn.className = nextClass;
+    var joinText = joinBtn.querySelector(".lobby-card__join-text");
+    var label = actionLabelFor(room);
+    if (joinText && joinText.textContent !== label) joinText.textContent = label;
+    if (joinBtn.getAttribute("aria-label") !== label) joinBtn.setAttribute("aria-label", label);
   }
 
   li.classList.toggle("lobby-card--mine", !!room.isMine);
   li.setAttribute("data-mine", room.isMine ? "1" : "0");
+  li.setAttribute("data-can-join", room.canJoinAsGuest ? "1" : "0");
 }
 
 function renderEmptyList(list, message) {
-  list.innerHTML =
-    '<li class="empty-state"><p class="empty-state__text">' + message + "</p></li>";
+  list.querySelectorAll(".lobby-card").forEach(function (el) {
+    el.remove();
+  });
+  var empty = list.querySelector(".empty-state");
+  if (!empty) {
+    empty = document.createElement("li");
+    empty.className = "empty-state";
+    var p = document.createElement("p");
+    p.className = "empty-state__text";
+    empty.appendChild(p);
+    list.appendChild(empty);
+  }
+  var text = empty.querySelector(".empty-state__text");
+  if (text) text.textContent = message;
   lastRoomsSignature = "";
 }
 
@@ -132,42 +311,70 @@ function patchLobbyList(list, rooms) {
     return true;
   }
 
+  var empty = list.querySelector(".empty-state");
+  if (empty) empty.remove();
+
   var existing = new Map();
   list.querySelectorAll(".lobby-card").forEach(function (el) {
     existing.set(el.getAttribute("data-id"), el);
   });
 
-  var frag = document.createDocumentFragment();
+  var nextIds = new Set();
   rooms.forEach(function (room) {
     var id = String(room.id);
+    nextIds.add(id);
     var card = existing.get(id);
     if (card) {
       updateCardElement(card, room);
-      existing.delete(id);
-      frag.appendChild(card);
     } else {
-      frag.appendChild(buildCardElement(room));
+      card = buildCardElement(room);
+      existing.set(id, card);
     }
   });
 
-  existing.forEach(function (el) {
-    el.remove();
+  existing.forEach(function (el, id) {
+    if (!nextIds.has(id)) el.remove();
   });
 
-  list.innerHTML = "";
-  list.appendChild(frag);
+  rooms.forEach(function (room, index) {
+    var id = String(room.id);
+    var card = existing.get(id);
+    if (!card) return;
+    var ref = list.children[index] || null;
+    if (list.children[index] !== card) {
+      list.insertBefore(card, ref);
+    }
+  });
+
   return true;
 }
 
-async function renderLobbiesNow() {
+function applyRoomsToDom(rooms) {
   var list = document.getElementById("lobbyList");
-  if (!list) return;
+  if (!list) return false;
+  return patchLobbyList(list, rooms);
+}
 
+/** Зберігає актуальний список і малює DOM, якщо вкладка Lobby видима. */
+export function setLobbyRooms(rooms) {
+  cachedRooms = Array.isArray(rooms) ? rooms : [];
+  maybeSyncDom();
+}
+
+/** Миттєво малює закешований список (напр. при поверненні на вкладку Lobby). */
+export function syncLobbyListFromCache() {
+  if (cachedRooms === null) return false;
+  if (!isLobbyViewVisible()) return false;
+  return applyRoomsToDom(cachedRooms);
+}
+async function fetchAndSetLobbyRooms() {
   try {
-    var rooms = await fetchLobbies();
-    patchLobbyList(list, rooms);
+    setLobbyRooms(await fetchLobbies());
   } catch (_e) {
-    renderEmptyList(list, t("lobby.loadError"));
+    var list = document.getElementById("lobbyList");
+    if (list && cachedRooms === null && isLobbyViewVisible()) {
+      renderEmptyList(list, t("lobby.loadError"));
+    }
   }
 }
 
@@ -180,13 +387,17 @@ export function scheduleLobbyListRefresh() {
   }, 60);
 }
 
-export async function flushLobbyListRefresh() {
+export async function flushLobbyListRefresh(options) {
+  options = options || {};
   if (refreshDebounceId != null) {
     clearTimeout(refreshDebounceId);
     refreshDebounceId = null;
   }
-  if (fetchInFlight) return fetchInFlight;
-  fetchInFlight = renderLobbiesNow().finally(function () {
+  if (fetchInFlight) {
+    if (!options.force) return fetchInFlight;
+    await fetchInFlight;
+  }
+  fetchInFlight = fetchAndSetLobbyRooms().finally(function () {
     fetchInFlight = null;
   });
   return fetchInFlight;
@@ -195,6 +406,7 @@ export async function flushLobbyListRefresh() {
 /** Скидає кеш підпису (напр. зміна мови). */
 export function invalidateLobbyListCache() {
   lastRoomsSignature = "";
+  if (cachedRooms !== null) maybeSyncDom();
 }
 
 export var renderLobbies = flushLobbyListRefresh;

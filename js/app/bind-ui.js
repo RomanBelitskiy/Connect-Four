@@ -1,16 +1,22 @@
-import { switchTab } from "./nav.js";
+import { switchTab, getActiveTab } from "./nav.js";
 import { refreshLobbies, refreshLobbiesIfVisible, startLobbyListPolling } from "./shell.js";
-import { setLobbyFeedHandler } from "../api/lobby-feed.js";
+import { setLobbyFeedHandler, setLobbyFeedPayloadHandler } from "../api/lobby-feed.js";
+import { setLobbyRooms } from "./lobby-list.js";
 import { primeGamePresentation } from "../game/match-board.js";
 import { bindCreateLobbyModal } from "../ui/create-lobby-modal.js";
 import { bindPickGameModal } from "../ui/pick-game-modal.js";
 import { bindLeaveGameConfirmModal, requestSwitchToLobby } from "../ui/leave-game-modal.js";
-import { bindReplaceLobbyModal, confirmReplaceLobby } from "../ui/replace-lobby-modal.js";
+import { bindReplaceLobbyModal } from "../ui/replace-lobby-modal.js";
 import { bindShareButtons } from "../ui/share.js";
 import { bindTelegramBackButton, setTelegramBackVisible } from "./telegram.js";
 import { bindSettingsModal } from "../ui/settings-modal.js";
-import { fetchActiveLobby } from "../api/client.js";
-import { joinLobbyById, reopenOwnLobby, spectateLobbyById } from "../game/lobby-session.js";
+import { bindProfileRefresh } from "../ui/profile-refresh.js";
+import { openLobbyFromList, reopenOwnLobby } from "../game/lobby-session.js";
+import {
+  clearLobbyJoinHoverSuppress,
+  scheduleLobbyJoinHoverSuppressFallback,
+  suppressLobbyJoinHover,
+} from "./join-hover-suppress.js";
 import { userErrorMessage } from "../utils/errors.js";
 import { t } from "../i18n/index.js";
 
@@ -33,6 +39,7 @@ export function bindUi() {
   bindReplaceLobbyModal();
   bindShareButtons();
   bindSettingsModal();
+  bindProfileRefresh();
   bindTelegramBackButton(function () {
     requestSwitchToLobby(null);
   });
@@ -47,26 +54,34 @@ export function bindUi() {
       if (!id) return;
 
       var isMine = card.getAttribute("data-mine") === "1";
+      var joinBtn = ev.target.closest(".lobby-card__join-btn--join");
 
       (async function () {
         try {
+          if (joinBtn && !isMine) {
+            ev.stopPropagation();
+            suppressLobbyJoinHover(joinBtn);
+            try {
+              var joined = await openLobbyFromList(id, true);
+              if (joined == null || getActiveTab() === "lobby") {
+                scheduleLobbyJoinHoverSuppressFallback(1000);
+              }
+            } catch (joinErr) {
+              clearLobbyJoinHoverSuppress();
+              throw joinErr;
+            }
+            return;
+          }
+
           if (isMine) {
             await reopenOwnLobby(id);
             return;
           }
 
-          var existing = await fetchActiveLobby();
-          if (existing && String(existing.id) !== String(id)) {
-            var ok = await confirmReplaceLobby({ mode: "join" });
-            if (!ok) return;
-            await spectateLobbyById(id, { skipActiveCheck: true, replaceExisting: true });
-            return;
-          }
-
-          await spectateLobbyById(id);
+          await openLobbyFromList(id, false);
         } catch (err) {
           window.alert(userErrorMessage(err) || t("error.openRoom"));
-          refreshLobbies();
+          refreshLobbies({ force: true });
         }
       })();
     });
@@ -76,10 +91,10 @@ export function bindUi() {
   if (btnReturnLobby) {
     btnReturnLobby.addEventListener("click", function () {
       switchTab("lobby");
-      refreshLobbies();
     });
   }
 
+  setLobbyFeedPayloadHandler(setLobbyRooms);
   setLobbyFeedHandler(refreshLobbiesIfVisible);
   startLobbyListPolling();
   primeGamePresentation();

@@ -3,7 +3,8 @@ import { formatLobbyMeta, prefersReducedMotion } from "../utils/format.js";
 import { t } from "../i18n/index.js";
 import { usesMarkChips } from "../games/index.js";
 import { updatePresentation } from "../games/board-runtime.js";
-import { opponentChipColor } from "./match-chips.js";
+import { activeTurnTttMark, opponentChipColor } from "./match-chips.js";
+import { createTttMarkElement } from "../games/infinite-ttt-board.js";
 import { isHumanTurn, stopGameClock } from "./match-clock.js";
 import { setTurnLabelKey } from "./match-labels.js";
 import * as boardRuntime from "../games/board-runtime.js";
@@ -24,10 +25,10 @@ export function setInMatchUi(on) {
   var root = document.getElementById("app");
   if (root) root.classList.toggle("app--in-match", !!on);
 
-  var headerFormat = document.getElementById("headerGameFormat");
-  if (headerFormat) {
-    if (on) headerFormat.removeAttribute("hidden");
-    else headerFormat.setAttribute("hidden", "");
+  var meta = document.getElementById("gameMatchMeta");
+  if (meta) {
+    if (on) meta.removeAttribute("hidden");
+    else meta.setAttribute("hidden", "");
   }
 }
 
@@ -118,6 +119,16 @@ export function showForfeitBanner() {
   wrap.setAttribute("data-dismiss-timer-id", String(timerId));
 }
 
+function syncTurnBannerMark(banner, mark) {
+  var disk = banner.querySelector(".game-turn__disk");
+  if (!disk) return;
+  disk.innerHTML = "";
+  if (!mark) return;
+  disk.appendChild(
+    createTttMarkElement(mark === "x" ? "X" : "O", { extraClass: "game-turn__mark" })
+  );
+}
+
 export function updateGameTurnUI() {
   var banner = document.getElementById("gameTurnBanner");
   var label = document.getElementById("gameTurnLabel");
@@ -130,10 +141,21 @@ export function updateGameTurnUI() {
     "game-turn--outcome-win",
     "game-turn--outcome-draw",
     "game-turn--disk-yellow",
-    "game-turn--disk-red"
+    "game-turn--disk-red",
+    "game-turn--ttt-x",
+    "game-turn--ttt-o"
   );
 
   if (game.myRole === "spectator") {
+    if (usesMarkChips(game.gameType)) {
+      var spectatorMark = activeTurnTttMark();
+      banner.classList.add(
+        spectatorMark === "x" ? "game-turn--ttt-x" : "game-turn--ttt-o"
+      );
+      syncTurnBannerMark(banner, spectatorMark);
+      setTurnLabelKey(game.currentPlayer === "y" ? "game.spectatorTurnHost" : "game.spectatorTurnGuest");
+      return;
+    }
     if (game.currentPlayer === "y") {
       banner.classList.add(
         game.humanChipColor === "red" ? "game-turn--disk-red" : "game-turn--disk-yellow"
@@ -145,13 +167,19 @@ export function updateGameTurnUI() {
       );
       setTurnLabelKey("game.spectatorTurnGuest");
     }
+    syncTurnBannerMark(banner, null);
     return;
   }
 
   if (usesMarkChips(game.gameType)) {
+    var turnMark = activeTurnTttMark();
+    banner.classList.add(turnMark === "x" ? "game-turn--ttt-x" : "game-turn--ttt-o");
+    syncTurnBannerMark(banner, turnMark);
     setTurnLabelKey(game.currentPlayer === "y" ? "game.turnTtt" : "game.opponentTurnTtt");
     return;
   }
+
+  syncTurnBannerMark(banner, null);
 
   if (game.currentPlayer === "y") {
     if (game.humanChipColor === "red") {
@@ -190,8 +218,11 @@ export function updateOutcomeFromServer(lobby) {
       "game-turn--outcome-win",
       "game-turn--outcome-draw",
       "game-turn--disk-yellow",
-      "game-turn--disk-red"
+      "game-turn--disk-red",
+      "game-turn--ttt-x",
+      "game-turn--ttt-o"
     );
+    syncTurnBannerMark(banner, null);
     banner.classList.add("game-turn--compact");
     if (isDraw) banner.classList.add("game-turn--outcome-draw");
     else banner.classList.add(iWon ? "game-turn--outcome-win" : "game-turn--outcome-loss");

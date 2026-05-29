@@ -38,16 +38,14 @@ export function avatarHtml(options) {
 export function applyAvatarElement(el, displayName, photoUrl) {
   if (!el) return;
 
-  if (photoUrl) {
-    el.classList.add("profile-hero__avatar--photo");
-    el.style.backgroundImage = "url('" + String(photoUrl).replace(/'/g, "%27") + "')";
-    el.textContent = "";
-    el.setAttribute("aria-label", displayName || t("profile.avatarAria"));
-    el.removeAttribute("aria-hidden");
-  } else {
-    el.classList.remove("profile-hero__avatar--photo");
-    el.style.backgroundImage = "";
-    el.textContent = initialFrom(displayName);
-    el.setAttribute("aria-label", t("profile.avatarAria"));
-  }
+  var name = displayName || t("profile.player");
+  el.classList.toggle("profile-hero__avatar--photo", !!photoUrl);
+  el.style.backgroundImage = "";
+  el.innerHTML = avatarHtml({
+    baseClass: "profile-hero__avatar-inner",
+    displayName: name,
+    photoUrl: photoUrl,
+  });
+  el.setAttribute("aria-label", name);
+  el.removeAttribute("aria-hidden");
 }

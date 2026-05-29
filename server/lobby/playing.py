@@ -11,7 +11,8 @@ from server.games.base import piece_for_player
 from server.games.registry import get_engine, resolve_game_type, win_reason_for
 from server.rating import DEFAULT_RATING, compute_match_deltas
 
-from server.lobby.helpers import _add_spectator, _now, _time_label
+from server.lobby.helpers import _add_spectator, _clear_spectators, _now, _time_label
+from server.lobby._common import prune_ready_toggle_for_lobby
 from server.lobby.pregame import (
     _guest_leave_pregame,
     _is_pregame,
@@ -89,6 +90,8 @@ def _finish_match(
                     (lobby_id,),
                 )
             conn.commit()
+        prune_ready_toggle_for_lobby(lobby_id)
+        _clear_spectators(lobby_id)
         return get_lobby_by_id(lobby_id) or {}
 
     host_delta = guest_delta = 0
@@ -191,6 +194,8 @@ def _finish_match(
                     (1 if won else 0, delta, uid),
                 )
         conn.commit()
+    prune_ready_toggle_for_lobby(lobby_id)
+    _clear_spectators(lobby_id)
     return get_lobby_by_id(lobby_id) or dict(finished)
 
 
@@ -251,14 +256,16 @@ def apply_lobby_move(lobby_id: str, player_id: int, move: dict[str, Any]) -> dic
                     guest_clock = %s,
                     last_tick_at = NOW(),
                     updated_at = NOW()
-                WHERE id = %s
+                WHERE id = %s AND status = 'playing' AND current_turn_id = %s
                 RETURNING *
                 """,
-                (Json(state), next_turn, host_clock, guest_clock, lobby_id),
+                (Json(state), next_turn, host_clock, guest_clock, lobby_id, player_id),
             )
             row = cur.fetchone()
         conn.commit()
-    return dict(row) if row else {}
+    if not row:
+        raise ValueError("Not your turn")
+    return dict(row)
 
 
 
@@ -325,6 +332,8 @@ def forfeit_lobby(lobby_id: str, player_id: int) -> dict[str, Any]:
                         (lobby_id,),
                     )
                 conn.commit()
+            prune_ready_toggle_for_lobby(lobby_id)
+            _clear_spectators(lobby_id)
             return get_lobby_by_id(lobby_id) or {}
 
         if guest_id and player_id == guest_id:

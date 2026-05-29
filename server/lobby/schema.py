@@ -82,6 +82,12 @@ def init_lobby_tables() -> None:
             )
             cur.execute(
                 """
+                ALTER TABLE lobbies
+                ADD COLUMN IF NOT EXISTS first_move VARCHAR(16) NOT NULL DEFAULT 'random'
+                """
+            )
+            cur.execute(
+                """
                 CREATE TABLE IF NOT EXISTS lobby_spectators (
                     lobby_id UUID NOT NULL REFERENCES lobbies(id) ON DELETE CASCADE,
                     user_id BIGINT NOT NULL REFERENCES users(telegram_id),
@@ -96,6 +102,57 @@ def init_lobby_tables() -> None:
                 ON lobby_spectators (lobby_id)
                 """
             )
+            _dedupe_active_lobbies(cur)
+            cur.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_lobbies_one_active_host
+                ON lobbies (host_id)
+                WHERE status IN ('waiting', 'playing')
+                """
+            )
+            cur.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_lobbies_one_active_guest
+                ON lobbies (guest_id)
+                WHERE status IN ('waiting', 'playing') AND guest_id IS NOT NULL
+                """
+            )
         conn.commit()
+
+
+def _dedupe_active_lobbies(cur) -> None:
+    """Залишає лише найновіше активне лобі на host/guest."""
+    cur.execute(
+        """
+        WITH ranked AS (
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY host_id ORDER BY updated_at DESC, created_at DESC
+                   ) AS rn
+            FROM lobbies
+            WHERE status IN ('waiting', 'playing')
+        )
+        UPDATE lobbies AS l
+        SET status = 'cancelled', updated_at = NOW()
+        FROM ranked AS r
+        WHERE l.id = r.id AND r.rn > 1
+        """
+    )
+    cur.execute(
+        """
+        WITH ranked AS (
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY guest_id ORDER BY updated_at DESC, created_at DESC
+                   ) AS rn
+            FROM lobbies
+            WHERE status IN ('waiting', 'playing') AND guest_id IS NOT NULL
+        )
+        UPDATE lobbies AS l
+        SET status = 'cancelled', updated_at = NOW()
+        FROM ranked AS r
+        WHERE l.id = r.id AND r.rn > 1
+        """
+    )
 
 

@@ -8,11 +8,26 @@ export function setTelegramInitData(value) {
   telegramInitData = value || "";
 }
 
+export function hasTelegramInitData() {
+  return !!telegramInitData;
+}
+
+function assertTelegramInitData() {
+  if (!telegramInitData) {
+    throw new Error("Telegram initData required");
+  }
+}
+
 function authHeaders() {
   return {
     "Content-Type": "application/json",
     "X-Telegram-Init-Data": telegramInitData,
   };
+}
+
+async function apiFetch(url, options) {
+  assertTelegramInitData();
+  return fetch(url, options);
 }
 
 function formatApiDetail(detail) {
@@ -51,12 +66,16 @@ async function parseError(res) {
   throw error;
 }
 
-export async function authenticateWithTelegram(initData) {
+export async function authenticateWithTelegram(initData, options) {
+  if (!initData) {
+    throw new Error("Telegram initData required");
+  }
+  var force = options && options.force;
   setTelegramInitData(initData);
   const res = await fetch("/api/auth/telegram", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ initData }),
+    body: JSON.stringify({ initData: initData, force: !!force }),
   });
   if (!res.ok) await parseError(res);
   const data = await res.json();
@@ -64,14 +83,15 @@ export async function authenticateWithTelegram(initData) {
 }
 
 export async function fetchOnlineCount() {
-  const res = await fetch("/api/online");
-  if (!res.ok) return 1;
+  if (!telegramInitData) return null;
+  const res = await apiFetch("/api/online", { headers: authHeaders() });
+  if (!res.ok) return null;
   const data = await res.json();
   return data.count || 1;
 }
 
 export async function fetchLobby(lobbyId) {
-  const res = await fetch("/api/lobbies/" + encodeURIComponent(lobbyId), {
+  const res = await apiFetch("/api/lobbies/" + encodeURIComponent(lobbyId), {
     headers: authHeaders(),
   });
   if (!res.ok) await parseError(res);
@@ -80,8 +100,9 @@ export async function fetchLobby(lobbyId) {
 }
 
 export async function syncLobby(lobbyId) {
+  if (!telegramInitData) return null;
   var epoch = nextSyncEpoch();
-  const res = await fetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/sync", {
+  const res = await apiFetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/sync", {
     method: "POST",
     headers: authHeaders(),
   });
@@ -104,7 +125,7 @@ export async function submitMove(lobbyId, move) {
     return { viaWs: true };
   }
 
-  const res = await fetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/move", {
+  const res = await apiFetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/move", {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify(payload),
@@ -115,21 +136,23 @@ export async function submitMove(lobbyId, move) {
 }
 
 export async function fetchActiveLobby() {
-  const res = await fetch("/api/lobbies/mine/active", { headers: authHeaders() });
+  if (!telegramInitData) return null;
+  const res = await apiFetch("/api/lobbies/mine/active", { headers: authHeaders() });
   if (!res.ok) return null;
   const data = await res.json();
   return data.lobby || null;
 }
 
 export async function fetchSpectatingLobby() {
-  const res = await fetch("/api/lobbies/mine/spectating", { headers: authHeaders() });
+  if (!telegramInitData) return null;
+  const res = await apiFetch("/api/lobbies/mine/spectating", { headers: authHeaders() });
   if (!res.ok) return null;
   const data = await res.json();
   return data.lobby || null;
 }
 
 export async function spectateLobby(lobbyId) {
-  const res = await fetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/spectate", {
+  const res = await apiFetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/spectate", {
     method: "POST",
     headers: authHeaders(),
   });
@@ -139,7 +162,7 @@ export async function spectateLobby(lobbyId) {
 }
 
 export async function leaveSpectatorLobby(lobbyId) {
-  const res = await fetch(
+  const res = await apiFetch(
     "/api/lobbies/" + encodeURIComponent(lobbyId) + "/leave-spectator",
     { method: "POST", headers: authHeaders() }
   );
@@ -147,19 +170,21 @@ export async function leaveSpectatorLobby(lobbyId) {
 }
 
 export async function fetchLobbies() {
-  const res = await fetch("/api/lobbies", { headers: authHeaders() });
+  if (!telegramInitData) return [];
+  const res = await apiFetch("/api/lobbies", { headers: authHeaders() });
   if (!res.ok) await parseError(res);
   const data = await res.json();
   return data.lobbies || [];
 }
 
 export async function createLobby(settings, replaceExisting) {
-  const res = await fetch("/api/lobbies", {
+  const res = await apiFetch("/api/lobbies", {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({
       visibility: settings.visibility,
       hostChipColor: settings.playerChipColor,
+      firstMove: settings.firstMove || "random",
       secondsPerPlayer: parseInt(settings.secondsPerPlayer, 10),
       incrementSeconds: parseInt(settings.incrementSeconds, 10),
       gameType: settings.gameType,
@@ -172,7 +197,7 @@ export async function createLobby(settings, replaceExisting) {
 }
 
 export async function fetchLobbyByCode(code) {
-  const res = await fetch("/api/lobbies/join/" + encodeURIComponent(code), {
+  const res = await apiFetch("/api/lobbies/join/" + encodeURIComponent(code), {
     headers: authHeaders(),
   });
   if (!res.ok) await parseError(res);
@@ -181,7 +206,7 @@ export async function fetchLobbyByCode(code) {
 }
 
 export async function joinLobby(lobbyId, replaceExisting) {
-  const res = await fetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/join", {
+  const res = await apiFetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/join", {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({ replaceExisting: !!replaceExisting }),
@@ -192,7 +217,7 @@ export async function joinLobby(lobbyId, replaceExisting) {
 }
 
 export async function setLobbyReady(lobbyId, ready) {
-  const res = await fetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/ready", {
+  const res = await apiFetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/ready", {
     method: "POST",
     headers: authHeaders(),
     body: JSON.stringify({ ready: !!ready }),
@@ -203,7 +228,7 @@ export async function setLobbyReady(lobbyId, ready) {
 }
 
 export async function kickLobbyGuest(lobbyId) {
-  const res = await fetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/kick-guest", {
+  const res = await apiFetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/kick-guest", {
     method: "POST",
     headers: authHeaders(),
   });
@@ -213,7 +238,7 @@ export async function kickLobbyGuest(lobbyId) {
 }
 
 export async function forfeitLobby(lobbyId) {
-  const res = await fetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/forfeit", {
+  const res = await apiFetch("/api/lobbies/" + encodeURIComponent(lobbyId) + "/forfeit", {
     method: "POST",
     headers: authHeaders(),
   });
@@ -223,21 +248,23 @@ export async function forfeitLobby(lobbyId) {
 }
 
 export async function fetchHistory() {
-  const res = await fetch("/api/history", { headers: authHeaders() });
+  if (!telegramInitData) return [];
+  const res = await apiFetch("/api/history", { headers: authHeaders() });
   if (!res.ok) return [];
   const data = await res.json();
   return data.history || [];
 }
 
 export async function fetchLeaderboard() {
-  const res = await fetch("/api/leaderboard", { headers: authHeaders() });
+  if (!telegramInitData) return [];
+  const res = await apiFetch("/api/leaderboard", { headers: authHeaders() });
   if (!res.ok) return [];
   const data = await res.json();
   return data.leaderboard || [];
 }
 
 export async function prepareLobbyShare(lobbyId) {
-  const res = await fetch(
+  const res = await apiFetch(
     "/api/lobbies/" + encodeURIComponent(lobbyId) + "/prepare-share",
     { method: "POST", headers: authHeaders() }
   );
@@ -246,10 +273,9 @@ export async function prepareLobbyShare(lobbyId) {
   return data.messageId;
 }
 
-export async function fetchCurrentUser(telegramId) {
-  const res = await fetch("/api/users/me?telegramId=" + encodeURIComponent(telegramId), {
-    headers: authHeaders(),
-  });
+export async function fetchCurrentUser(_telegramId) {
+  if (!telegramInitData) return null;
+  const res = await apiFetch("/api/users/me", { headers: authHeaders() });
   if (!res.ok) return null;
   const data = await res.json();
   return data.user;

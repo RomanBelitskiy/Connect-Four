@@ -97,9 +97,12 @@ function positionFakeSelectList(wrap) {
   var naturalHeight = list.scrollHeight;
   var spaceBelow = bounds.maxBottom - rect.bottom - gap;
   var spaceAbove = rect.top - bounds.minTop - gap;
+  var preferUp = wrap.getAttribute("data-fake-select-flip") === "up";
   var flipUp = false;
 
-  if (naturalHeight <= spaceBelow) {
+  if (preferUp) {
+    flipUp = naturalHeight <= spaceAbove || spaceAbove >= spaceBelow;
+  } else if (naturalHeight <= spaceBelow) {
     flipUp = false;
   } else if (naturalHeight <= spaceAbove) {
     flipUp = true;
@@ -108,7 +111,7 @@ function positionFakeSelectList(wrap) {
   }
 
   var modalBody = wrap.closest(".modal__body--game");
-  if (modalBody && !flipUp && naturalHeight > spaceBelow) {
+  if (modalBody && !flipUp && !preferUp && naturalHeight > spaceBelow) {
     modalBody.scrollTop += naturalHeight - spaceBelow;
     rect = trigger.getBoundingClientRect();
     bounds = getFakeSelectBounds(wrap);
@@ -145,13 +148,13 @@ function positionFakeSelectList(wrap) {
 }
 
 function closeFakeSelectWrap(wrap) {
-  wrap.classList.remove("is-open");
   var list = getFakeSelectList(wrap);
   var trig = wrap.querySelector(".fake-select__trigger");
+  wrap.classList.remove("is-open");
+  if (trig) trig.setAttribute("aria-expanded", "false");
   if (list) list.hidden = true;
   clearFakeSelectListPosition(list);
   restoreFakeSelectList(wrap);
-  if (trig) trig.setAttribute("aria-expanded", "false");
 }
 
 function repositionOpenFakeSelects(modal) {
@@ -177,7 +180,7 @@ function ensureViewportListeners() {
 
 /**
  * @param {HTMLElement} modal
- * @param {{ labelForTimeValue: (v: string) => string, labelForIncValue: (v: string) => string }} labels
+ * @param {{ labelForTimeValue: (v: string) => string, labelForIncValue: (v: string) => string, labelForFirstMoveValue?: (v: string) => string }} labels
  */
 export function bindFakeSelectsInModal(modal, labels) {
   if (!modal) return;
@@ -217,8 +220,8 @@ export function bindFakeSelectsInModal(modal, labels) {
         if (w !== wrap) closeFakeSelectWrap(w);
       });
       if (opening) {
-        wrap.classList.add("is-open");
         list.hidden = false;
+        wrap.classList.add("is-open");
         trigger.setAttribute("aria-expanded", "true");
         portalFakeSelectList(wrap, list);
         positionFakeSelectList(wrap);
@@ -240,6 +243,9 @@ export function bindFakeSelectsInModal(modal, labels) {
         } else if (opt.hasAttribute("data-inc-value")) {
           valSpan.textContent = labels.labelForIncValue(opt.getAttribute("data-inc-value"));
           valSpan.setAttribute("data-inc-value", opt.getAttribute("data-inc-value") || "");
+        } else if (opt.hasAttribute("data-first-move-value") && labels.labelForFirstMoveValue) {
+          valSpan.textContent = labels.labelForFirstMoveValue(opt.getAttribute("data-first-move-value"));
+          valSpan.setAttribute("data-first-move-value", opt.getAttribute("data-first-move-value") || "");
         } else {
           valSpan.textContent = opt.textContent.replace(/\s+/g, " ").trim();
         }

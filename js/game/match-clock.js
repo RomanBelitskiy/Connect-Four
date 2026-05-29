@@ -5,6 +5,30 @@ import { notifyLobbyState } from "../api/ws.js";
 import { t } from "../i18n/index.js";
 
 var ALLOWED_BASE_SECONDS = [15, 30, 60, 120, 180];
+var clockAnchoredAt = 0;
+
+function anchorClocks() {
+  clockAnchoredAt = Date.now();
+}
+
+/** Доганяє локальний відлік, поки вкладка була у фоні. */
+export function syncLocalClocksToNow() {
+  if (!game.matchActive || game.matchFinished || !clockAnchoredAt) return;
+  var elapsed = Math.max(0, Math.floor((Date.now() - clockAnchoredAt) / 1000));
+  if (elapsed <= 0) return;
+  if (game.currentPlayer === "y") {
+    game.clockYellowSec = Math.max(0, game.clockYellowSec - elapsed);
+  } else {
+    game.clockRedSec = Math.max(0, game.clockRedSec - elapsed);
+  }
+  clockAnchoredAt = Date.now();
+}
+
+/** Миттєво оновлює UI годинників після повернення з фону. */
+export function refreshClocksOnResume() {
+  syncLocalClocksToNow();
+  updateClockDisplay();
+}
 
 export function resetClocksFromSettings(settings) {
   var baseSec =
@@ -84,6 +108,8 @@ export function applyClocksFromLobby(lobby, opts) {
   ) {
     triggerBonusAnim("yellow");
   }
+
+  anchorClocks();
 }
 
 function requestServerClockSync() {
@@ -110,11 +136,13 @@ function tickGameClock() {
       return;
     }
   }
+  anchorClocks();
   updateClockDisplay();
 }
 
 export function startGameClock() {
   stopGameClock();
+  anchorClocks();
   game.clockTimerId = window.setInterval(tickGameClock, 1000);
 }
 

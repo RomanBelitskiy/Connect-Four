@@ -89,6 +89,25 @@ async def init_bot_username(application: Application) -> None:
         set_bot_username(me.username)
 
 
+async def fetch_user_chat_profile(telegram_id: int) -> dict | None:
+    """Свіжі ім'я та username з Bot API (для ручного оновлення профілю)."""
+    application = get_bot_application()
+    if not application:
+        return None
+
+    try:
+        chat = await application.bot.get_chat(chat_id=telegram_id)
+        return {
+            "id": chat.id,
+            "username": chat.username,
+            "first_name": chat.first_name or "",
+            "last_name": chat.last_name,
+        }
+    except Exception as exc:
+        logger.warning("Failed to fetch chat profile for %s: %s", telegram_id, exc)
+        return None
+
+
 async def fetch_user_photo_url(telegram_id: int) -> str | None:
     application = get_bot_application()
     if not application:

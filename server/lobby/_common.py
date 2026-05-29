@@ -25,3 +25,9 @@ from server.games.registry import (
 
 READY_TOGGLE_AT: dict[tuple[str, int], float] = {}
 READY_TOGGLE_COOLDOWN_SEC = 1.0
+
+
+def prune_ready_toggle_for_lobby(lobby_id: str) -> None:
+    keys = [key for key in READY_TOGGLE_AT if key[0] == lobby_id]
+    for key in keys:
+        READY_TOGGLE_AT.pop(key, None)

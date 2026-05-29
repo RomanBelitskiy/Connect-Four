@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import secrets
 from datetime import datetime, timezone
 from typing import Any
@@ -45,14 +46,42 @@ def _format_public_user(row: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 def _spectator_count(lobby_id: str) -> int:
+    return _batch_spectator_counts([lobby_id]).get(lobby_id, 0)
+
+
+
+def _batch_spectator_counts(lobby_ids: list[str]) -> dict[str, int]:
+    if not lobby_ids:
+        return {}
     with get_connection() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT COUNT(*)::int AS n FROM lobby_spectators WHERE lobby_id = %s",
-                (lobby_id,),
+                """
+                SELECT lobby_id::text AS lobby_id, COUNT(*)::int AS n
+                FROM lobby_spectators
+                WHERE lobby_id = ANY(%s::uuid[])
+                GROUP BY lobby_id
+                """,
+                (lobby_ids,),
             )
-            row = cur.fetchone()
-            return int(row["n"]) if row else 0
+            return {str(row["lobby_id"]): int(row["n"]) for row in cur.fetchall()}
+
+
+
+def _batch_viewer_spectating(lobby_ids: list[str], viewer_id: int) -> set[str]:
+    if not lobby_ids or viewer_id <= 0:
+        return set()
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT lobby_id::text AS lobby_id
+                FROM lobby_spectators
+                WHERE user_id = %s AND lobby_id = ANY(%s::uuid[])
+                """,
+                (viewer_id, lobby_ids),
+            )
+            return {str(row["lobby_id"]) for row in cur.fetchall()}
 
 
 
@@ -125,4 +154,26 @@ def _opponent_chip_color(host_chip_color: str) -> str:
 def _reset_grid_for_lobby(lobby: dict[str, Any]) -> Any:
     return empty_state_for(lobby.get("game_type"))
 
+
+
+def normalize_first_move(value: str | None) -> str:
+    if value in ("host", "guest", "random"):
+        return value
+    if value in ("me", "self"):
+        return "host"
+    if value in ("opponent", "guest_first"):
+        return "guest"
+    return "random"
+
+
+
+def resolve_first_turn_id(lobby: dict[str, Any]) -> int:
+    policy = normalize_first_move(lobby.get("first_move"))
+    host_id = int(lobby["host_id"])
+    guest_id = int(lobby["guest_id"])
+    if policy == "host":
+        return host_id
+    if policy == "guest":
+        return guest_id
+    return random.choice([host_id, guest_id])
 

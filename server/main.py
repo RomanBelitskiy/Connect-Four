@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from server.bot import build_bot_application, init_bot_username
 from server.config import ROOT_DIR, settings
-from server.db import init_db, apply_pending_migrations
+from server.db import init_db, apply_pending_migrations, init_pool, close_pool
 from server.lobby import init_lobby_tables
 from server.routes.api import router as api_router
 
@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI):
     init_db()
     init_lobby_tables()
     apply_pending_migrations()
+    init_pool()
     logger.info("PostgreSQL ready")
 
     if settings.is_bot_configured:
@@ -46,6 +47,8 @@ async def lifespan(app: FastAPI):
         )
 
     yield
+
+    close_pool()
 
     if bot_application:
         await bot_application.updater.stop()

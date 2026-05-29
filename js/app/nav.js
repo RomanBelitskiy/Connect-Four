@@ -1,7 +1,8 @@
 import { maybeForfeitActiveMatch } from "../game/match-board.js";
 import { clearActiveGameTab } from "./game-tab-hint.js";
-import { refreshLobbies } from "./shell.js";
+import { showLobbyList } from "./shell.js";
 import { setTelegramBackVisible } from "./telegram.js";
+import { clearLobbyJoinHoverSuppress } from "./join-hover-suppress.js";
 
 export function getActiveTab() {
   var active = document.querySelector(".view.view--active[data-view]");
@@ -20,7 +21,10 @@ export function ensureLobbyTab() {
 export function switchTab(tab) {
   var current = getActiveTab();
   if (current === tab) {
-    if (tab === "lobby") refreshLobbies();
+    if (tab === "lobby") {
+      clearLobbyJoinHoverSuppress();
+      showLobbyList();
+    }
     setTelegramBackVisible(tab === "game");
     return;
   }
@@ -57,6 +61,7 @@ export function switchTab(tab) {
   setTelegramBackVisible(tab === "game");
 
   if (tab === "lobby") {
-    refreshLobbies();
+    clearLobbyJoinHoverSuppress();
+    showLobbyList();
   }
 }

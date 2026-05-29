@@ -39,7 +39,7 @@ _GAME_META: dict[str, GameMeta] = {
     infinite_ttt.GAME_TYPE: GameMeta(
         infinite_ttt.GAME_TYPE,
         "tic_tac_toe",
-        "Нескінченні хрестики-нулики",
+        "Хрестики-нолики",
         "cells",
     ),
 }

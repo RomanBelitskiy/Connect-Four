@@ -4,16 +4,25 @@ import { prefersReducedMotion } from "../../utils/format.js";
 import { game } from "../state.js";
 import { bumpSyncEpoch } from "../sync-epoch.js";
 
-var countdownTickId = /** @type {ReturnType<typeof setInterval> | null} */ (null);
+var countdownStepId = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
 var countdownSyncId = /** @type {ReturnType<typeof setInterval> | null} */ (null);
 var countdownFinishSyncId = /** @type {ReturnType<typeof setInterval> | null} */ (null);
 var countdownWsFallbackId = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
 var lastShownCountdown = -1;
 
-function stopCountdownTick() {
-  if (countdownTickId) {
-    clearInterval(countdownTickId);
-    countdownTickId = null;
+/** @type {string|null} */
+var activeCountdownAt = null;
+/** @type {string|null} */
+var activeLobbyId = null;
+/** @type {((left: number, synced?: object) => void)|null} */
+var activeOnTick = null;
+/** Різниця clientElapsed − serverElapsed (с); знімає постійний зсув годинника. */
+var countdownSkewSec = 0;
+
+function stopCountdownStep() {
+  if (countdownStepId) {
+    clearTimeout(countdownStepId);
+    countdownStepId = null;
   }
 }
 
@@ -25,7 +34,7 @@ function clearWsFallback() {
 }
 
 export function stopCountdownTimers() {
-  stopCountdownTick();
+  stopCountdownStep();
   clearWsFallback();
   if (countdownSyncId) {
     clearInterval(countdownSyncId);
@@ -36,7 +45,48 @@ export function stopCountdownTimers() {
     countdownFinishSyncId = null;
   }
   lastShownCountdown = -1;
+  activeCountdownAt = null;
+  activeLobbyId = null;
+  activeOnTick = null;
+  countdownSkewSec = 0;
   bumpSyncEpoch();
+}
+
+export function isCountdownActive() {
+  return !!activeCountdownAt && !!activeLobbyId;
+}
+
+function syncCountdownSkewFromServer(lobby) {
+  if (!lobby || !lobby.countdownAt) return;
+  var rem = lobby.countdownRemaining;
+  if (typeof rem !== "number" || !Number.isFinite(rem)) return;
+  var started = Date.parse(lobby.countdownAt);
+  if (Number.isNaN(started)) return;
+  var serverElapsed = 3 - Math.max(0, Math.min(3, rem));
+  var clientElapsed = (Date.now() - started) / 1000;
+  countdownSkewSec = clientElapsed - serverElapsed;
+}
+
+/** Залишок секунд (float), узгоджений із сервером через countdownSkewSec. */
+function getRemainingSeconds() {
+  if (!activeCountdownAt) return 0;
+  var started = Date.parse(activeCountdownAt);
+  if (Number.isNaN(started)) return 0;
+  var clientElapsed = (Date.now() - started) / 1000;
+  return Math.max(0, 3 - clientElapsed + countdownSkewSec);
+}
+
+function getDisplayLeft(remaining) {
+  if (remaining <= 0) return 0;
+  return Math.min(3, Math.ceil(remaining));
+}
+
+function msUntilNextBoundary(remaining, displayLeft) {
+  if (displayLeft <= 0) return 0;
+  var nextRemaining = displayLeft - 1;
+  var delay = (remaining - nextRemaining) * 1000;
+  if (!Number.isFinite(delay) || delay < 0) delay = 0;
+  return delay + (prefersReducedMotion() ? 40 : 8);
 }
 
 function showCountdownNumber(n) {
@@ -90,6 +140,47 @@ function scheduleWsFallbackSync(lobby, onTick) {
   }, 500);
 }
 
+function handleCountdownEnd(lobby, onTick) {
+  stopCountdownStep();
+  hideCountdown();
+  if (onTick) onTick(0);
+  if (isLobbySocketOpen()) {
+    scheduleWsFallbackSync(lobby, onTick);
+  } else {
+    ensureFinishSync(lobby, onTick);
+    requestPlayingSync(lobby.id, onTick);
+  }
+}
+
+function runCountdownStep() {
+  if (!activeCountdownAt || !activeLobbyId) return;
+
+  if (game.status === "playing" && game.matchActive) {
+    stopCountdownTimers();
+    hideCountdown();
+    return;
+  }
+
+  var remaining = getRemainingSeconds();
+  var left = getDisplayLeft(remaining);
+
+  if (left <= 0) {
+    handleCountdownEnd({ id: activeLobbyId }, activeOnTick);
+    return;
+  }
+
+  showCountdownNumber(left);
+  if (activeOnTick) activeOnTick(left);
+
+  stopCountdownStep();
+  countdownStepId = setTimeout(runCountdownStep, msUntilNextBoundary(remaining, left));
+}
+
+export function refreshCountdownOnResume() {
+  if (!isCountdownActive()) return;
+  runCountdownStep();
+}
+
 export function wrapCountdownHandler(onPlaying, lobby) {
   return function (left, syncedLobby) {
     if (notifyPlaying(onPlaying, syncedLobby)) return;
@@ -106,44 +197,42 @@ export function wrapCountdownHandler(onPlaying, lobby) {
 
 export function startCountdownUi(lobby, onTick) {
   if (typeof onTick !== "function") onTick = null;
-  stopCountdownTimers();
-  if (!lobby.countdownAt) return;
-
-  function tick() {
-    if (game.status === "playing" && game.matchActive) {
-      stopCountdownTimers();
-      hideCountdown();
-      return;
-    }
-
-    var started = Date.parse(lobby.countdownAt);
-    if (Number.isNaN(started)) return;
-    var elapsed = (Date.now() - started) / 1000;
-    var left = Math.ceil(3 - elapsed);
-    if (left > 3) left = 3;
-    if (left <= 0) {
-      stopCountdownTick();
-      hideCountdown();
-      if (onTick) onTick(0);
-      if (isLobbySocketOpen()) {
-        scheduleWsFallbackSync(lobby, onTick);
-      } else {
-        ensureFinishSync(lobby, onTick);
-        requestPlayingSync(lobby.id, onTick);
-      }
-      return;
-    }
-    showCountdownNumber(left);
-    if (onTick) onTick(left);
+  if (!lobby || !lobby.countdownAt) {
+    stopCountdownTimers();
+    return;
   }
 
-  tick();
-  var intervalMs = prefersReducedMotion() ? 280 : 120;
-  countdownTickId = setInterval(tick, intervalMs);
+  var countdownKey = String(lobby.countdownAt);
+  var lobbyId = String(lobby.id || "");
+  var sameRun = activeCountdownAt === countdownKey && activeLobbyId === lobbyId;
+
+  if (sameRun) {
+    activeOnTick = onTick;
+    syncCountdownSkewFromServer(lobby);
+    runCountdownStep();
+    return;
+  }
+
+  stopCountdownTimers();
+  activeCountdownAt = countdownKey;
+  activeLobbyId = lobbyId;
+  activeOnTick = onTick;
+  syncCountdownSkewFromServer(lobby);
+  lastShownCountdown = -1;
+
+  runCountdownStep();
 
   if (lobby.id && !isLobbySocketOpen()) {
     countdownSyncId = setInterval(function () {
       requestPlayingSync(lobby.id, onTick);
     }, 1500);
   }
+}
+
+/** Оновити серверний anchor без перезапуску таймерів (WS state під час відліку). */
+export function updateCountdownFromLobby(lobby) {
+  if (!lobby || !lobby.countdownAt || !isCountdownActive()) return;
+  if (String(lobby.countdownAt) !== activeCountdownAt) return;
+  syncCountdownSkewFromServer(lobby);
+  runCountdownStep();
 }

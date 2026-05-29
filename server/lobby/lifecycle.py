@@ -27,18 +27,32 @@ def cancel_lobby(lobby_id: str) -> dict[str, Any]:
 
 
 
+def abandon_all_active_lobbies_for_user(user_id: int) -> list[str]:
+    """Закриває всі активні лобі користувача (не лише одне)."""
+    closed: list[str] = []
+    seen: set[str] = set()
+    while True:
+        lobby = get_active_lobby_for_user(user_id)
+        if not lobby:
+            break
+        lobby_id = str(lobby["id"])
+        if lobby_id in seen:
+            break
+        seen.add(lobby_id)
+        host_id = int(lobby["host_id"])
+        if _is_pregame(lobby) and host_id == user_id:
+            cancel_lobby(lobby_id)
+        else:
+            forfeit_lobby(lobby_id, user_id)
+        closed.append(lobby_id)
+    return closed
+
+
+
 def abandon_lobby_for_replace(user_id: int) -> str | None:
     """Закриває активне лобі користувача перед створенням нового."""
-    lobby = get_active_lobby_for_user(user_id)
-    if not lobby:
-        return None
-    lobby_id = str(lobby["id"])
-    host_id = int(lobby["host_id"])
-    if _is_pregame(lobby) and host_id == user_id:
-        cancel_lobby(lobby_id)
-    else:
-        forfeit_lobby(lobby_id, user_id)
-    return lobby_id
+    closed = abandon_all_active_lobbies_for_user(user_id)
+    return closed[0] if closed else None
 
 
 
@@ -63,6 +77,19 @@ def join_lobby(lobby_id: str, guest_id: int, *, skip_active_check: bool = False)
     base_sec = lobby["seconds_per_player"]
     with get_connection() as conn:
         with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(%s)", (guest_id,))
+            if not skip_active_check:
+                cur.execute(
+                    """
+                    SELECT id FROM lobbies
+                    WHERE status IN ('waiting', 'playing') AND guest_id = %s
+                    LIMIT 1
+                    """,
+                    (guest_id,),
+                )
+                if cur.fetchone():
+                    raise ValueError("active_lobby_exists")
+
             cur.execute(
                 """
                 UPDATE lobbies SET

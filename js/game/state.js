@@ -18,6 +18,8 @@ export const game = {
   shareUrl: /** @type {string|null} */ (null),
   status: /** @type {string|null} */ (null),
   opponent: /** @type {object|null} */ (null),
+  hostUser: /** @type {object|null} */ (null),
+  guestUser: /** @type {object|null} */ (null),
   waiting: false,
   lastTurnLabelKey: /** @type {string|null} */ (null),
   winLine: /** @type {{col:number,row:number}[]|null} */ (null),

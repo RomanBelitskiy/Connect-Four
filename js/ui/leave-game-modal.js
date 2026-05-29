@@ -1,9 +1,9 @@
 import { switchTab } from "../app/nav.js";
-import { refreshLobbies } from "../app/shell.js";
 import { game, leaveGate } from "../game/state.js";
 import { leaveActiveLobby } from "../game/lobby-session.js";
 import { isForfeitLeave, maybeForfeitActiveMatch } from "../game/match-board.js";
 import { t } from "../i18n/index.js";
+import { closeModal, openModal } from "./modal-utils.js";
 
 function getLeaveGameModal() {
   return document.getElementById("leaveGameModal");
@@ -73,16 +73,10 @@ export function closeLeaveGameConfirmModal(options) {
   options = options || {};
   var modal = getLeaveGameModal();
   if (!modal) return;
-  modal.setAttribute("hidden", "");
-  document.documentElement.style.overflow = "";
   leaveGate.confirmCallback = null;
-  if (options.restoreFocus === false) {
-    leaveGate.focusReturnEl = null;
-    return;
-  }
-  var ret = leaveGate.focusReturnEl;
+  var ret = options.restoreFocus === false ? null : leaveGate.focusReturnEl;
   leaveGate.focusReturnEl = null;
-  if (ret && typeof ret.focus === "function") ret.focus();
+  closeModal(modal, ret || null);
 }
 
 export function openLeaveGameConfirmModal(onConfirm, focusReturnEl) {
@@ -97,16 +91,12 @@ export function openLeaveGameConfirmModal(onConfirm, focusReturnEl) {
     return;
   }
   syncLeaveModalCopy();
-  modal.removeAttribute("hidden");
-  var riskBtn = document.getElementById("btnLeaveGameConfirm");
-  if (riskBtn && typeof riskBtn.focus === "function") riskBtn.focus();
-  document.documentElement.style.overflow = "hidden";
+  openModal(modal, { focusSelector: "#btnLeaveGameConfirm" });
 }
 
 export function requestSwitchToLobby(focusReturnEl) {
   if (!requiresLeaveGameConfirm()) {
     switchTab("lobby");
-    refreshLobbies();
     return;
   }
   openLeaveGameConfirmModal(function () {
@@ -114,7 +104,6 @@ export function requestSwitchToLobby(focusReturnEl) {
       .then(function () {
         maybeForfeitActiveMatch();
         switchTab("lobby");
-        return refreshLobbies();
       })
       .catch(function () {
         maybeForfeitActiveMatch();

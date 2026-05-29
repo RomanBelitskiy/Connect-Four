@@ -7,7 +7,7 @@ import {
   setProfileFromUser,
   setProfileLoading,
 } from "./app/shell.js";
-import { authenticateWithTelegram } from "./api/client.js";
+import { authenticateWithTelegram, setTelegramInitData } from "./api/client.js";
 import { connectLobbyFeed } from "./api/lobby-feed.js";
 import {
   initLobbySession,
@@ -49,7 +49,9 @@ async function bootstrap() {
     showAppLoading();
   }
 
-  if (tg && tg.initData) {
+  var hasInitData = !!(tg && tg.initData);
+  if (hasInitData) {
+    setTelegramInitData(tg.initData);
     setProfileLoading(true);
     try {
       var user = await authenticateWithTelegram(tg.initData);
@@ -63,7 +65,7 @@ async function bootstrap() {
     setProfileFromTg(tg);
   }
 
-  if (joinCode && tg && tg.initData) {
+  if (joinCode && hasInitData) {
     var bootResult = await runBootJoinGate(function () {
       return joinLobbyByInviteCode(joinCode);
     });
@@ -76,11 +78,11 @@ async function bootstrap() {
     }
 
     finishAppLoading();
-    refreshAllData();
+    if (hasInitData) refreshAllData();
     return;
   }
 
-  if (tg && tg.initData) {
+  if (hasInitData) {
     if (bootResume) {
       var bootResumeResult = await runBootResumeGate(function () {
         return resumeActiveLobbyIfAny();
@@ -103,7 +105,9 @@ async function bootstrap() {
     finishAppLoading();
   }
 
-  await refreshAllData();
+  if (hasInitData) {
+    await refreshAllData();
+  }
   hideAppLoading();
 }
 

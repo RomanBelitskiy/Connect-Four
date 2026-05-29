@@ -2,7 +2,7 @@ import { game } from "./state.js";
 import { DEFAULT_GAME_ID, resolveGameType } from "../games/index.js";
 import * as boardRuntime from "../games/board-runtime.js";
 import * as connectFour from "../games/connect-four-board.js";
-import { syncChipVisuals } from "./match-chips.js";
+import { syncChipVisuals, updateClockPlayerLabels } from "./match-chips.js";
 import {
   applyClocksFromLobby,
   resetClocksFromSettings,
@@ -31,6 +31,9 @@ import {
 } from "./move-guard.js";
 
 function applyParticipantRoles(lobby) {
+  game.hostUser = lobby.host || null;
+  game.guestUser = lobby.guest || null;
+
   if (lobby.myRole === "spectator") {
     game.humanChipColor = lobby.hostChipColor === "red" ? "red" : "yellow";
     game.opponent = lobby.guest || null;
@@ -49,6 +52,31 @@ function applyParticipantRoles(lobby) {
   }
 }
 
+function applyTurnFromLobby(lobby) {
+  if (!lobby || lobby.status !== "playing") return;
+
+  var turnId = lobby.currentTurnId ? String(lobby.currentTurnId) : "";
+  if (!turnId && lobby.firstMove === "host" && lobby.host && lobby.host.telegramId) {
+    turnId = String(lobby.host.telegramId);
+  } else if (!turnId && lobby.firstMove === "guest" && lobby.guest && lobby.guest.telegramId) {
+    turnId = String(lobby.guest.telegramId);
+  }
+  if (!turnId) return;
+
+  if (lobby.myRole === "spectator") {
+    var hostTid = lobby.host && lobby.host.telegramId;
+    if (!hostTid) return;
+    game.currentPlayer = turnId === String(hostTid) ? "y" : "r";
+    return;
+  }
+
+  var myId = game.myTelegramId;
+  if (!myId && lobby.myRole === "host" && lobby.host) myId = String(lobby.host.telegramId);
+  if (!myId && lobby.myRole === "guest" && lobby.guest) myId = String(lobby.guest.telegramId);
+  if (!myId) return;
+  game.currentPlayer = turnId === String(myId) ? "y" : "r";
+}
+
 function applyPlayingStateFromLobby(lobby) {
   game.gameType = resolveGameType(lobby, game.gameType);
   boardRuntime.syncGridFromLobby(lobby);
@@ -60,14 +88,7 @@ function applyPlayingStateFromLobby(lobby) {
   game.matchFinished = lobby.status === "finished";
   boardRuntime.syncWinFromLobby(lobby);
 
-  if (lobby.currentTurnId) {
-    if (lobby.myRole === "spectator") {
-      var hostTid = String(lobby.host && lobby.host.telegramId);
-      game.currentPlayer = String(lobby.currentTurnId) === hostTid ? "y" : "r";
-    } else if (game.myTelegramId) {
-      game.currentPlayer = String(lobby.currentTurnId) === String(game.myTelegramId) ? "y" : "r";
-    }
-  }
+  applyTurnFromLobby(lobby);
 }
 
 function applyWaitingLobbyState(lobby, options) {
@@ -91,6 +112,7 @@ function applyWaitingLobbyState(lobby, options) {
   }
 
   syncChipVisuals();
+  updateClockPlayerLabels(lobby);
   updateGamePresentation(game.gameType);
   refreshMatchMeta(lobby);
   setInMatchUi(true);
@@ -112,11 +134,15 @@ export function applyServerLobbyPlaying(lobby) {
 
   var prevState = game.lobbyId === lobby.id ? boardRuntime.cloneState(game.gameType) : null;
 
+  game.lobbyId = lobby.id;
+  game.myRole = lobby.myRole;
+  game.shareUrl = lobby.shareUrl;
   game.status = lobby.status;
   game.gameType = resolveGameType(lobby, game.gameType);
   updateSpectatorBar(lobby);
   applyPlayingStateFromLobby(lobby);
   syncChipVisuals();
+  updateClockPlayerLabels(lobby);
   updateGamePresentation(game.gameType);
 
   var patched = prevState && boardRuntime.applyPatch(game.gameType, prevState);
@@ -144,6 +170,8 @@ function resetMatchState() {
   game.shareUrl = null;
   game.status = null;
   game.opponent = null;
+  game.hostUser = null;
+  game.guestUser = null;
   game.lastTurnLabelKey = null;
   game.winLine = null;
   game.winCells = null;
@@ -226,6 +254,7 @@ export function applyServerLobby(lobby, options) {
     !wasWaiting &&
     boardRuntime.applyPatch(game.gameType, prevState);
   if (!patched) boardRuntime.renderBoard(game.gameType);
+  updateClockPlayerLabels(lobby);
   applyClocksFromLobby(lobby, { detectMoveBonus: !!patched });
   updateGameTurnUI();
   updateClockDisplay();

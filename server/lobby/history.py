@@ -45,7 +45,7 @@ def get_match_history(user_id: int, limit: int = 20) -> list[dict[str, Any]]:
         result.append(
             {
                 "result": result_type,
-                "opponent": f"Проти {opp_label}",
+                "opponentLabel": opp_label,
                 "meta": played.strftime("%d.%m.%Y") if played else "",
                 "timeLabel": row.get("time_label") or "",
                 "delta": delta,

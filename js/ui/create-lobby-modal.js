@@ -4,7 +4,7 @@ import { fetchActiveLobby } from "../api/client.js";
 import { confirmReplaceLobby } from "./replace-lobby-modal.js";
 import { userErrorMessage } from "../utils/errors.js";
 import { t, formatTimeOption, formatIncrementOption } from "../i18n/index.js";
-import { openPickGameModal, gameTitleForType, getPendingGameType } from "./pick-game-modal.js";
+import { gameTitleForType, getPendingGameType } from "./pick-game-modal.js";
 import { DEFAULT_GAME_ID, getGameDef, normalizeGameId } from "../games/index.js";
 import { createTttMarkElement } from "../games/infinite-ttt-board.js";
 import {
@@ -14,14 +14,19 @@ import {
 } from "./fake-select.js";
 import { closeModal, openModal } from "./modal-utils.js";
 
+var createLobbyInFlight = false;
+
 async function createLobbyFlow(settings) {
+  if (createLobbyInFlight) return;
+  createLobbyInFlight = true;
+  try {
   var existing = await fetchActiveLobby();
   if (existing) {
     var ok = await confirmReplaceLobby({ mode: "create" });
     if (!ok) return;
     await leaveActiveLobby(existing.id);
     await startLobbyFromSettings(settings, true);
-    await refreshLobbies();
+    await refreshLobbies({ force: true });
     return;
   }
 
@@ -37,7 +42,10 @@ async function createLobbyFlow(settings) {
       throw err;
     }
   }
-  await refreshLobbies();
+  await refreshLobbies({ force: true });
+  } finally {
+    createLobbyInFlight = false;
+  }
 }
 
 function getCreateLobbyModal() {
@@ -104,6 +112,7 @@ function openCreateLobbyModal(gameType) {
 
   syncCreateLobbyChipPicker(resolvedType);
   resetVisibilityToggle();
+  resetFirstMoveSelect();
 
   openModal(modal);
 }
@@ -128,6 +137,12 @@ function labelForIncValue(value) {
   return formatIncrementOption(n);
 }
 
+function labelForFirstMoveValue(value) {
+  if (value === "host") return t("create.firstMoveMe");
+  if (value === "guest") return t("create.firstMoveOpponent");
+  return t("create.firstMoveRandom");
+}
+
 export function syncCreateLobbySelectLabels() {
   var modal = getCreateLobbyModal();
   if (!modal) return;
@@ -140,6 +155,11 @@ export function syncCreateLobbySelectLabels() {
   modal.querySelectorAll("[data-inc-value]").forEach(function (el) {
     var value = el.getAttribute("data-inc-value");
     if (value != null) el.textContent = labelForIncValue(value);
+  });
+
+  modal.querySelectorAll("[data-first-move-value]").forEach(function (el) {
+    var value = el.getAttribute("data-first-move-value");
+    if (value != null) el.textContent = labelForFirstMoveValue(value);
   });
 
   var gameTypeEl = document.getElementById("lobbyGameType");
@@ -165,6 +185,39 @@ function resetVisibilityToggle() {
   syncVisibilityToggleUi(btn);
 }
 
+function resetFirstMoveSelect() {
+  var hidden = document.getElementById("lobbyFirstMove");
+  var valSpan = document.querySelector("#createLobbyFirstMoveSelect .fake-select__value");
+  var list = document.querySelector("#createLobbyFirstMoveSelect .fake-select__list");
+  if (hidden) hidden.value = "random";
+  if (valSpan) {
+    valSpan.setAttribute("data-first-move-value", "random");
+    valSpan.textContent = labelForFirstMoveValue("random");
+  }
+  if (list) {
+    list.querySelectorAll('[role="option"]').forEach(function (opt) {
+      var sel = opt.getAttribute("data-value") === "random";
+      opt.classList.toggle("is-selected", sel);
+      opt.setAttribute("aria-selected", sel ? "true" : "false");
+    });
+  }
+}
+
+function readFirstMoveSetting() {
+  var wrap = document.getElementById("createLobbyFirstMoveSelect");
+  if (!wrap) return "random";
+  var hidden = wrap.querySelector('input[type="hidden"]');
+  var valSpan = wrap.querySelector(".fake-select__value");
+  var fromHidden = hidden && hidden.value ? hidden.value : "";
+  var fromSpan =
+    valSpan && valSpan.getAttribute("data-first-move-value")
+      ? valSpan.getAttribute("data-first-move-value")
+      : "";
+  var value = fromHidden || fromSpan || "random";
+  if (value === "host" || value === "guest" || value === "random") return value;
+  return "random";
+}
+
 function getLobbyModalSettings() {
   var visBtn = document.getElementById("lobbyVisibilityToggle");
   var visibility =
@@ -184,6 +237,7 @@ function getLobbyModalSettings() {
     secondsPerPlayer: timeEl ? timeEl.value : "60",
     incrementSeconds: incEl ? incEl.value : "1",
     playerChipColor: playerChipChoice,
+    firstMove: readFirstMoveSetting(),
     gameType: resolvedGameType,
   };
 }
@@ -191,14 +245,6 @@ function getLobbyModalSettings() {
 export function bindCreateLobbyModal() {
   var modal = getCreateLobbyModal();
   if (!modal) return;
-
-  var backBtn = document.getElementById("btnCreateLobbyBack");
-  if (backBtn) {
-    backBtn.addEventListener("click", function () {
-      closeCreateLobbyModal();
-      openPickGameModal();
-    });
-  }
 
   modal.querySelectorAll("[data-modal-close]").forEach(function (el) {
     el.addEventListener("click", closeCreateLobbyModal);
@@ -229,6 +275,7 @@ export function bindCreateLobbyModal() {
   var confirmBtn = document.getElementById("btnCreateLobbyConfirm");
   if (confirmBtn) {
     confirmBtn.addEventListener("click", function () {
+      if (createLobbyInFlight) return;
       var settings = getLobbyModalSettings();
       closeCreateLobbyModal();
       createLobbyFlow(settings).catch(function (err) {
@@ -250,6 +297,7 @@ export function bindCreateLobbyModal() {
   bindFakeSelectsInModal(modal, {
     labelForTimeValue: labelForTimeValue,
     labelForIncValue: labelForIncValue,
+    labelForFirstMoveValue: labelForFirstMoveValue,
   });
   syncCreateLobbySelectLabels();
 }

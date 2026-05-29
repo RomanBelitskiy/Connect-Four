@@ -22,7 +22,13 @@ import {
   setPlayerCardReadyHighlight,
   setPregamePlayerSideClasses,
 } from "./ready-ui.js";
-import { startCountdownUi, stopCountdownTimers, hideCountdown, wrapCountdownHandler } from "./countdown.js";
+import {
+  startCountdownUi,
+  stopCountdownTimers,
+  hideCountdown,
+  wrapCountdownHandler,
+  updateCountdownFromLobby,
+} from "./countdown.js";
 
 function bindPregameCrownImages() {
   document.querySelectorAll(".pregame-player__crown-icon").forEach(function (img) {
@@ -223,6 +229,7 @@ export function patchPregameFromLobby(lobby, options) {
   updatePregameStatusText(lobby, ready.hasGuest, ready.countdownLocked, ready.myReady, ready.oppReady);
 
   if (ready.countdownLocked) {
+    updateCountdownFromLobby(lobby);
     startCountdownUi(lobby, wrapCountdownHandler(options.onPlaying, lobby));
   } else {
     stopCountdownTimers();

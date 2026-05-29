@@ -1,4 +1,5 @@
 import { GAME_LIST } from "./catalog.js";
+import { t } from "../i18n/index.js";
 
 var SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -124,6 +125,7 @@ export function renderPickGameList(listEl) {
     var name = document.createElement("span");
     name.className = "pick-game-card__name";
     name.setAttribute("data-i18n", def.labelKey);
+    name.textContent = t(def.labelKey);
     btn.appendChild(name);
 
     item.appendChild(btn);

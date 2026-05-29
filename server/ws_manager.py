@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import Any
 
@@ -13,12 +12,17 @@ from server.lobby_store import (
     apply_lobby_move,
     forfeit_lobby,
     format_lobby,
+    format_lobby_cards,
     get_lobby_by_id,
+    list_open_lobbies,
     process_pregame_lobby,
     set_lobby_ready,
 )
 
 logger = logging.getLogger(__name__)
+
+_USER_CACHE_MAX = 512
+_FEED_DEBOUNCE_SEC = 0.15
 
 
 class LobbyConnectionManager:
@@ -29,6 +33,8 @@ class LobbyConnectionManager:
         self._lock = asyncio.Lock()
         self._countdown_tasks: dict[str, asyncio.Task[None]] = {}
         self._user_cache: dict[int, dict[str, Any]] = {}
+        self._feed_pending = False
+        self._feed_task: asyncio.Task[None] | None = None
 
     def _cached_user(self, user_id: int) -> dict[str, Any] | None:
         cached = self._user_cache.get(user_id)
@@ -36,8 +42,15 @@ class LobbyConnectionManager:
             return cached
         row = get_user_by_telegram_id(user_id)
         if row:
+            if len(self._user_cache) >= _USER_CACHE_MAX:
+                self._user_cache.pop(next(iter(self._user_cache)))
             self._user_cache[user_id] = row
         return row
+
+    @staticmethod
+    def _build_feed_cards(viewer_id: int) -> list[dict[str, Any]]:
+        rows = list_open_lobbies()
+        return format_lobby_cards(rows, viewer_id=viewer_id)
 
     @property
     def online_count(self) -> int:
@@ -73,6 +86,7 @@ class LobbyConnectionManager:
         async with self._lock:
             self._online.add(user_id)
             self._feed[user_id] = websocket
+        await self._send_feed_snapshot(user_id, websocket)
 
     async def disconnect_feed(self, user_id: int) -> None:
         async with self._lock:
@@ -80,19 +94,45 @@ class LobbyConnectionManager:
             if not self._user_has_connection(user_id):
                 self._online.discard(user_id)
 
+    async def _send_feed_snapshot(self, user_id: int, ws: WebSocket) -> None:
+        try:
+            cards = await asyncio.to_thread(self._build_feed_cards, user_id)
+            await ws.send_json({"type": "lobbies", "lobbies": cards})
+        except Exception as exc:
+            logger.warning("Lobby feed snapshot failed for %s: %s", user_id, exc)
+
     async def broadcast_lobby_feed(self) -> None:
-        async with self._lock:
-            subscribers = list(self._feed.items())
-        if not subscribers:
-            return
+        self._feed_pending = True
+        if self._feed_task is None or self._feed_task.done():
+            self._feed_task = asyncio.create_task(self._flush_feed_broadcast())
 
-        async def _notify(user_id: int, ws: WebSocket) -> None:
-            try:
-                await ws.send_json({"type": "lobbies_changed"})
-            except Exception as exc:
-                logger.warning("Lobby feed send failed for %s: %s", user_id, exc)
+    async def _flush_feed_broadcast(self) -> None:
+        try:
+            while True:
+                self._feed_pending = False
+                await asyncio.sleep(_FEED_DEBOUNCE_SEC)
+                if self._feed_pending:
+                    continue
+                break
 
-        await asyncio.gather(*(_notify(uid, ws) for uid, ws in subscribers))
+            async with self._lock:
+                subscribers = list(self._feed.items())
+            if not subscribers:
+                return
+
+            async def _notify(user_id: int, ws: WebSocket) -> None:
+                try:
+                    cards = await asyncio.to_thread(self._build_feed_cards, user_id)
+                    await ws.send_json({"type": "lobbies", "lobbies": cards})
+                except Exception as exc:
+                    logger.warning("Lobby feed send failed for %s: %s", user_id, exc)
+
+            await asyncio.gather(
+                *(_notify(uid, ws) for uid, ws in subscribers),
+                return_exceptions=True,
+            )
+        except Exception as exc:
+            logger.warning("Lobby feed broadcast failed: %s", exc)
 
     def _should_notify_lobby_list(
         self,
@@ -103,11 +143,13 @@ class LobbyConnectionManager:
         if lobby.get("visibility") != "open":
             return False
         status = lobby.get("status")
-        if status == "finished":
+        if status in ("finished", "cancelled"):
             return True
         if prev_status == "waiting" and status == "playing":
             return True
         if status == "waiting" and not prev_guest_id and lobby.get("guest_id"):
+            return True
+        if status == "waiting" and prev_guest_id and not lobby.get("guest_id"):
             return True
         return False
 
@@ -244,6 +286,7 @@ class LobbyConnectionManager:
                     await ws.send_json({"type": "error", "message": str(exc)})
                 return
             await self.broadcast_lobby(lobby_id)
+            await self.broadcast_lobby_feed()
             return
 
         if msg_type == "forfeit":
