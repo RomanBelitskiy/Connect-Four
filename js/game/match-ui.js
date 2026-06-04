@@ -207,9 +207,14 @@ export function updateOutcomeFromServer(lobby) {
   setInMatchUi(false);
 
   var banner = document.getElementById("gameTurnBanner");
+  var isDraw = lobby.winReason === "draw";
+  var isSpectator = game.myRole === "spectator";
   var myId = game.myTelegramId;
   var iWon = lobby.winnerId && String(lobby.winnerId) === String(myId);
-  var isDraw = lobby.winReason === "draw";
+  var hostWon =
+    lobby.winnerId &&
+    lobby.host &&
+    String(lobby.winnerId) === String(lobby.host.telegramId);
 
   if (banner) {
     banner.classList.remove(
@@ -225,10 +230,22 @@ export function updateOutcomeFromServer(lobby) {
     syncTurnBannerMark(banner, null);
     banner.classList.add("game-turn--compact");
     if (isDraw) banner.classList.add("game-turn--outcome-draw");
+    else if (isSpectator) banner.classList.add("game-turn--outcome-win");
     else banner.classList.add(iWon ? "game-turn--outcome-win" : "game-turn--outcome-loss");
   }
 
-  if (isDraw) setTurnLabelKey("game.draw");
+  if (isSpectator) {
+    if (isDraw) setTurnLabelKey("game.draw");
+    else if (lobby.winReason === "forfeit") {
+      setTurnLabelKey(hostWon ? "game.spectatorForfeitHost" : "game.spectatorForfeitGuest");
+    } else if (lobby.winReason === "timeout") {
+      setTurnLabelKey(hostWon ? "game.spectatorTimeoutHost" : "game.spectatorTimeoutGuest");
+    } else if (lobby.winReason === "tic_tac_toe") {
+      setTurnLabelKey(hostWon ? "game.spectatorWinTttHost" : "game.spectatorWinTttGuest");
+    } else {
+      setTurnLabelKey(hostWon ? "game.spectatorWinFourHost" : "game.spectatorWinFourGuest");
+    }
+  } else if (isDraw) setTurnLabelKey("game.draw");
   else if (lobby.winReason === "forfeit") {
     setTurnLabelKey(iWon ? "game.forfeitWin" : "game.forfeitLoss");
   } else if (lobby.winReason === "timeout") {

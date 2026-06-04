@@ -40,7 +40,7 @@ export function serverGridToHostGuest(serverGrid, hostChipColor) {
 
 export function syncGridFromLobby(lobby) {
   game.tttState = null;
-  if (lobby.myRole === "spectator") {
+  if (lobby.myRole === "spectator" || game.myRole === "spectator") {
     game.grid = serverGridToHostGuest(lobby.grid, lobby.hostChipColor);
   } else {
     game.grid = serverGridToLocal(lobby.grid, lobby.myRole);

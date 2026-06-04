@@ -68,6 +68,9 @@ export function initTelegramApp() {
     if (!tg.isExpanded && typeof tg.expand === "function") {
       tg.expand();
     }
+    if (!tg.isFullscreen && typeof tg.requestFullscreen === "function") {
+      tg.requestFullscreen();
+    }
   } else if (typeof tg.exitFullscreen === "function" && tg.isFullscreen) {
     tg.exitFullscreen();
   }

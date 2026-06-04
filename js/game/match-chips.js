@@ -72,6 +72,9 @@ export function activeTurnTttMark() {
 }
 
 export function pieceModifierForDrop(moverKind) {
+  if (game.myRole === "spectator") {
+    return moverKind === "r" ? "game-board__piece--red" : "game-board__piece--yellow";
+  }
   if (moverKind === "y") {
     return game.humanChipColor === "red" ? "game-board__piece--red" : "game-board__piece--yellow";
   }
